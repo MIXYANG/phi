@@ -81,9 +81,9 @@ func runTUI() error {
 	}
 	defer ctrl.Close()
 
-	thinkMode := ""
+	model := cfg.Name
 	if cfg.Think.Enabled {
-		thinkMode = string(cfg.Think.Mode)
+		model = fmt.Sprintf("%s::%s", model, string(cfg.Think.Mode))
 	}
 
 	ui := editor.NewEditor(
@@ -93,8 +93,7 @@ func runTUI() error {
 		vx,
 		th,
 		cwd,
-		cfg.Name,
-		thinkMode,
+		model,
 		cfg.SkillPath,
 		cfg.ContextWindow,
 		modelNames,
