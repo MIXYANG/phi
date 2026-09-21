@@ -30,6 +30,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `/branch <name>`: switch to that branch, or create it from HEAD when nothing
   carries the name yet. Remote rows check out the local branch that tracks them.
 
+- TypeSafe System One client support via `internal/llm/jev`.
+
 ### Changed
 
 - `/branch` completes with a trailing space, so typed arguments follow the command
