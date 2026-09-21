@@ -26,6 +26,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- `grep` no longer hangs on a matched line larger than its read buffer (minified
+  bundles, one-line JSON/sourcemaps). Events over 2MB are now skipped with a
+  notice instead of deadlocking the tool against ripgrep's stdout pipe.
+
 ### Security
 
 ## [0.27.3] - 2026-09-17
