@@ -10,6 +10,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [0.27.4] - 2026-09-20
+
+### Added
+
 - `/branch`: pick a working branch from the composer — name and last commit
   only, `●` for the current branch, Enter runs `git switch` off the UI goroutine
   and the footer branch label refreshes immediately.
@@ -20,6 +34,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `/branch` completes with a trailing space, so typed arguments follow the command
+  name instead of gluing onto it.
+
 ### Deprecated
 
 ### Removed
@@ -29,6 +46,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `grep` no longer hangs on a matched line larger than its read buffer (minified
   bundles, one-line JSON/sourcemaps). Events over 2MB are now skipped with a
   notice instead of deadlocking the tool against ripgrep's stdout pipe.
+- The composer border label carries the active think mode: it reads `model::think`
+  when think is enabled, and just the model name when it is off.
 
 ### Security
 
@@ -644,7 +663,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.27.3...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.27.4...HEAD
+[0.27.4]: https://github.com/pulseaiclub/phi/releases/tag/v0.27.4
 [0.27.3]: https://github.com/pulseaiclub/phi/releases/tag/v0.27.3
 [0.27.2]: https://github.com/pulseaiclub/phi/releases/tag/v0.27.2
 [0.27.1]: https://github.com/pulseaiclub/phi/releases/tag/v0.27.1
