@@ -4,6 +4,9 @@
 phi-debug.log
 .cursor/
 
+# Go build output (make build)
+/phi
+
 # local lint report, not committed
 lint-report.md
 .phi/
