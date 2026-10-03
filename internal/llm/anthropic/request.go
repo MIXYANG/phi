@@ -30,6 +30,11 @@ type AnthropicRequest struct {
 	// nativeEndpoint records where replayed thinking history came from; source
 	// matching happens during BuildRequest, before hooks run.
 	nativeEndpoint string
+	// thinkingRequested records the config-level thinking decision at BuildRequest
+	// time. A hook that clears Thinking leaves it set, so prepareNative can tell
+	// "no explicit thinking config" apart from an explicitly disabled request;
+	// only the latter filters thinking blocks from the wire.
+	thinkingRequested bool
 	// Keep provenance until Stream can check the prefix after request hooks.
 	nativeMessages map[int]*llm.NativeState
 }

@@ -60,6 +60,9 @@ func BuildRequest(
 
 	if cfg.Think.Enabled {
 		req.Thinking = buildThinkingConfig(cfg.Think.Mode)
+		// Mode Off yields a nil config; Enabled+Off is still an explicit off
+		// and must filter thinking history like Enabled=false does.
+		req.thinkingRequested = req.Thinking != nil
 		req.MaxTokens = req.Thinking.requiredMaxTokens()
 	}
 
@@ -116,7 +119,7 @@ func BuildRequest(
 
 		case llm.RoleAssistant:
 			msg := anthropicMessage{Role: "assistant"}
-			if items := replayNative(cfg, endpoint, m.Native); len(items) > 0 {
+			if items := replayNative(endpoint, m.Native); len(items) > 0 {
 				msg.Content = items
 				req.nativeEndpoint = m.Native.Endpoint
 				if req.nativeMessages == nil {
@@ -342,14 +345,6 @@ func Stream(
 			)
 			return
 		}
-		if req.Model != cfg.Name {
-			yield(llm.StreamEvent{}, fmt.Errorf(
-				"anthropic: request hook changed model from %q to %q; select the model in configuration before building the request",
-				cfg.Name,
-				req.Model,
-			))
-			return
-		}
 		if err := validateThinking(req); err != nil {
 			yield(llm.StreamEvent{}, err)
 			return
@@ -385,16 +380,28 @@ func Stream(
 			return
 		}
 
-		processStream(httpResp.Body, cfg, func(ev llm.StreamEvent, err error) bool {
-			if ev.Final != nil && ev.Final.Native != nil {
-				ev.Final.Native.Prefix = prefix
-			}
-			return yield(ev, err)
-		})
+		// Captured state records the model that actually serves the request —
+		// the post-hook req.Model, not the configured name — so the next
+		// request matches replay against its own post-hook model.
+		processStream(
+			httpResp.Body,
+			req.Model,
+			endpointFingerprint(cfg.BaseURL),
+			func(ev llm.StreamEvent, err error) bool {
+				if ev.Final != nil && ev.Final.Native != nil {
+					ev.Final.Native.Prefix = prefix
+				}
+				return yield(ev, err)
+			},
+		)
 	}
 }
 
-func processStream(body io.Reader, cfg llm.ModelConfig, yield func(llm.StreamEvent, error) bool) {
+// processStream takes the serving identity (model, endpoint) rather than the
+// pre-hook ModelConfig: the capture must record what actually serves the
+// request, and this signature makes reading any other config field a
+// compile-time impossibility.
+func processStream(body io.Reader, model, endpoint string, yield func(llm.StreamEvent, error) bool) {
 	var (
 		content     strings.Builder
 		reasoning   strings.Builder
@@ -598,7 +605,8 @@ func processStream(body io.Reader, cfg llm.ModelConfig, yield func(llm.StreamEve
 			}
 			stopped = true
 		case "error":
-			err := llm.FormatAPIError("anthropic", http.StatusOK, payloadLine)
+			// No HTTP status applies to an in-stream event; don't invent one.
+			err := fmt.Errorf("anthropic stream error: %s", llm.APIErrorMessage(payloadLine))
 			yield(llm.StreamEvent{Type: llm.StreamEventTypeError, Err: err.Error()}, err)
 			return
 		}
@@ -617,7 +625,7 @@ func processStream(body io.Reader, cfg llm.ModelConfig, yield func(llm.StreamEve
 	// Anthropic sends no total; the buckets are disjoint, so they add up.
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens + usage.CachedTokens() + usage.CacheWriteTokens()
 	done := llm.AssistantDone(content.String(), reasoning.String(), toolCalls, usage)
-	done.Final.Native = native.state(cfg.Name, endpointFingerprint(cfg.BaseURL))
+	done.Final.Native = native.state(model, endpoint)
 	yield(done, nil)
 }
 

@@ -1,10 +1,10 @@
 package anthropic
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -71,14 +71,19 @@ func TestNativeThinkingCapture(t *testing.T) {
 			events = append(events, `{"type":"content_block_stop","index":0}`, `{"type":"message_stop"}`)
 			var final *llm.Message
 			var display strings.Builder
-			processStream(strings.NewReader(thinkingStream(events...)), cfg, func(ev llm.StreamEvent, err error) bool {
-				require.NoError(t, err)
-				display.WriteString(ev.Delta.ReasoningContent)
-				if ev.Final != nil {
-					final = ev.Final
-				}
-				return true
-			})
+			processStream(
+				strings.NewReader(thinkingStream(events...)),
+				cfg.Name,
+				endpointFingerprint(cfg.BaseURL),
+				func(ev llm.StreamEvent, err error) bool {
+					require.NoError(t, err)
+					display.WriteString(ev.Delta.ReasoningContent)
+					if ev.Final != nil {
+						final = ev.Final
+					}
+					return true
+				},
+			)
 			require.NotNil(t, final)
 			assert.Equal(t, tt.reasoning, final.ReasoningContent)
 			assert.Equal(t, tt.reasoning, display.String())
@@ -131,13 +136,13 @@ func TestNativeThinkingRejectsIncompleteStream(t *testing.T) {
 			stop, `{"type":"message_stop"}`,
 		}, "incomplete thinking content"},
 		{"wrong block index", []string{start, `{"type":"content_block_delta","index":1,"delta":{"type":"signature_delta","signature":"opaque"}}`, stop, `{"type":"message_stop"}`}, "incomplete thinking content"},
-		{"provider error", []string{start, signature, stop, `{"type":"error","error":{"type":"overloaded_error","message":"busy"}}`}, "busy"},
+		{"provider error", []string{start, signature, stop, `{"type":"error","error":{"type":"overloaded_error","message":"busy"}}`}, "anthropic stream error: busy"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var streamErr error
 			processStream(
 				strings.NewReader(thinkingStream(tt.events...)),
-				llm.ModelConfig{},
+				"", "",
 				func(ev llm.StreamEvent, err error) bool {
 					assert.Nil(t, ev.Final)
 					if err != nil {
@@ -198,14 +203,22 @@ func TestNativeToolResultIDsMatch(t *testing.T) {
 			assert.Equal(t, normalizeToolCallID(id), req.Messages[3].Content.([]anthropicContentBlock)[0].ToolUseID)
 			assert.Equal(t, id, req.Messages[5].Content.([]anthropicContentBlock)[0].ToolUseID)
 
-			// A source switch uses the ordinary projection on both sides.
+			// A model switch is judged against the final request: the candidate
+			// survives BuildRequest, then the mismatched thinking is filtered
+			// while text, tool calls, and their original IDs stay paired.
 			other := cfg
 			other.Name = "other-model"
 			req = BuildRequest(other, "", messages, nil)
-			calls := req.Messages[0].Content.([]anthropicContentBlock)
+			require.Len(t, req.Messages, 2)
+			_, err = req.prepareNative()
+			require.NoError(t, err)
+			replayed, ok := req.Messages[0].Content.([]nativeBlock)
+			require.True(t, ok)
+			require.Len(t, replayed, 1)
+			assert.JSONEq(t, `"tool_use"`, string(replayed[0]["type"]))
+			assert.JSONEq(t, `"`+id+`"`, string(replayed[0]["id"]), "native tool IDs stay original")
 			results = req.Messages[1].Content.([]anthropicContentBlock)
-			assert.Equal(t, normalizeToolCallID(id), calls[0].ID)
-			assert.Equal(t, calls[0].ID, results[0].ToolUseID)
+			assert.Equal(t, id, results[0].ToolUseID)
 		})
 	}
 }
@@ -221,11 +234,12 @@ func TestNativeThinkingSourceIsolation(t *testing.T) {
 		Version: nativeStateVersion, API: llm.Anthropic, Model: cfg.Name, Endpoint: endpointFingerprint(cfg.BaseURL),
 		Items: []json.RawMessage{json.RawMessage(`{"type":"thinking","thinking":"","signature":"opaque"}`)},
 	}
+	// BuildRequest keeps candidates from the same source; the model is judged
+	// after hooks, in the Stream-based checks below.
 	for _, tt := range []struct {
 		name   string
 		change func(*llm.NativeState)
 	}{
-		{"model", func(s *llm.NativeState) { s.Model = "other-model" }},
 		{"api", func(s *llm.NativeState) { s.API = llm.OpenAIResponses }},
 		{"endpoint", func(s *llm.NativeState) { s.Endpoint = endpointFingerprint("https://other.test") }},
 		{"unknown version", func(s *llm.NativeState) { s.Version++ }},
@@ -255,15 +269,39 @@ func TestNativeThinkingSourceIsolation(t *testing.T) {
 	again := BuildRequest(cfg, "", []llm.Message{msg}, nil)
 	assert.Equal(t, state.Items, again.Messages[0].Content)
 
+	// Model rewrites are judged against the final request: the mismatched
+	// thinking is filtered from the wire instead of rejecting the request.
+	bodies := make(chan json.RawMessage, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		bodies <- body
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"message_stop\"}\n\n")
+	}))
+	defer srv.Close()
+	cfg.BaseURL = srv.URL
+	state.Endpoint = endpointFingerprint(srv.URL)
+	again = BuildRequest(cfg, "", []llm.Message{msg}, nil)
 	again.Model = "hook-selected-model"
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	for _, err := range Stream(ctx, &http.Client{}, cfg, &again) {
-		require.ErrorContains(t, err, "request hook changed model")
+	for _, err := range Stream(t.Context(), srv.Client(), cfg, &again) {
+		require.NoError(t, err)
 	}
-	again.Model = cfg.Name
+	raw := <-bodies
+	assert.NotContains(t, string(raw), "opaque")
+	var sent struct {
+		Messages []json.RawMessage `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &sent))
+	assert.Empty(t, sent.Messages, "a filtered thinking-only assistant is dropped from the wire")
+
+	// An endpoint change still refuses before any HTTP round trip.
+	again = BuildRequest(cfg, "", []llm.Message{msg}, nil)
 	cfg.BaseURL = "https://other.test"
-	for _, err := range Stream(ctx, &http.Client{}, cfg, &again) {
+	for _, err := range Stream(t.Context(), &http.Client{}, cfg, &again) {
 		require.ErrorContains(t, err, "another endpoint")
 	}
 }
@@ -277,7 +315,7 @@ func TestNativeThinkingConsumerStopsBeforeSignature(t *testing.T) {
 		`{"type":"message_stop"}`,
 	)
 	var events []llm.StreamEvent
-	processStream(strings.NewReader(stream), llm.ModelConfig{}, func(ev llm.StreamEvent, err error) bool {
+	processStream(strings.NewReader(stream), "", "", func(ev llm.StreamEvent, err error) bool {
 		require.NoError(t, err)
 		events = append(events, ev)
 		return false
@@ -287,10 +325,8 @@ func TestNativeThinkingConsumerStopsBeforeSignature(t *testing.T) {
 	assert.Equal(t, "partial", events[0].Delta.ReasoningContent)
 }
 
-func TestNativeThinkingDisabledUsesProjection(t *testing.T) {
-	cfg := llm.ModelConfig{Name: "claude-test", Think: llm.ThinkConfig{Enabled: true, Mode: llm.Medium}}
-	var final *llm.Message
-	processStream(strings.NewReader(thinkingStream(
+func TestNativeThinkingDisabledFiltersWire(t *testing.T) {
+	stream := thinkingStream(
 		`{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"display","signature":"opaque"}}`,
 		`{"type":"content_block_stop","index":0}`,
 		`{"type":"content_block_start","index":1,"content_block":{"type":"redacted_thinking","data":"encrypted"}}`,
@@ -300,37 +336,65 @@ func TestNativeThinkingDisabledUsesProjection(t *testing.T) {
 		`{"type":"content_block_start","index":3,"content_block":{"type":"tool_use","id":"call|special","name":"read","input":{}}}`,
 		`{"type":"content_block_stop","index":3}`,
 		`{"type":"message_stop"}`,
-	)), cfg, func(ev llm.StreamEvent, err error) bool {
-		require.NoError(t, err)
-		if ev.Final != nil {
-			final = ev.Final
+	)
+	bodies := make(chan json.RawMessage, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
-		return true
-	})
-	require.NotNil(t, final)
-	require.NotNil(t, final.Native)
-	messages := []llm.Message{*final, {Role: llm.RoleTool, ToolCallID: "call|special", Content: "ok"}}
-	for _, enabled := range []bool{true, false, true} {
-		cfg.Think.Enabled = enabled
-		req := BuildRequest(cfg, "", messages, nil)
-		require.Len(t, req.Messages, 2)
-		wire, err := json.Marshal(req)
-		require.NoError(t, err)
-		if enabled {
-			require.NotNil(t, req.Thinking)
-			assert.Equal(t, final.Native.Items, req.Messages[0].Content)
-			assert.Contains(t, string(wire), `"tool_use_id":"call|special"`)
-		} else {
-			assert.Nil(t, req.Thinking)
-			require.NotContains(t, string(wire), "thinking")
-			blocks := req.Messages[0].Content.([]anthropicContentBlock)
-			require.Len(t, blocks, 2)
-			assert.Equal(t, "answer", blocks[0].Text)
-			assert.Equal(t, normalizeToolCallID("call|special"), blocks[1].ID)
-			assert.Equal(t, blocks[1].ID, req.Messages[1].Content.([]anthropicContentBlock)[0].ToolUseID)
-		}
-		assert.NotNil(t, messages[0].Native, "turning thinking off must not erase persisted state")
+		bodies <- body
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, stream)
+	}))
+	defer srv.Close()
+	cfg := llm.ModelConfig{
+		Name: "claude-test", BaseURL: srv.URL, API: llm.Anthropic,
+		Think: llm.ThinkConfig{Enabled: true, Mode: llm.Medium},
 	}
+	messages := []llm.Message{{Role: llm.RoleUser, Content: "question"}}
+	turn := func() string {
+		req := BuildRequest(cfg, "", messages, nil)
+		var final *llm.Message
+		for ev, err := range Stream(t.Context(), srv.Client(), cfg, &req) {
+			require.NoError(t, err)
+			if ev.Final != nil {
+				final = ev.Final
+			}
+		}
+		require.NotNil(t, final)
+		messages = append(messages, *final,
+			llm.Message{Role: llm.RoleTool, ToolCallID: "call|special", Content: "ok"})
+		return string(<-bodies)
+	}
+
+	// First request: nothing to replay yet, and the capture gets a prefix.
+	wire := turn()
+	require.NotNil(t, messages[1].Native)
+	assert.NotEmpty(t, messages[1].Native.Prefix)
+	assert.NotContains(t, wire, `"type":"assistant"`)
+
+	// Explicitly disabled: thinking is filtered from the wire while text and
+	// tool calls keep their original IDs, and the persisted state survives.
+	cfg.Think.Enabled = false
+	wire = turn()
+	assert.NotContains(t, wire, `"type":"thinking"`)
+	assert.NotContains(t, wire, `"type":"redacted_thinking"`)
+	assert.Contains(t, wire, `"text":"answer"`)
+	assert.Contains(t, wire, `"id":"call|special"`)
+	assert.Contains(t, wire, `"tool_use_id":"call|special"`)
+	assert.NotNil(t, messages[1].Native, "turning thinking off must not erase persisted state")
+
+	// Re-enabled: the untouched history replays again. Thinking captured while
+	// disabled stays filtered — its signature binds to the filtered prefix.
+	cfg.Think.Enabled = true
+	wire = turn()
+	assert.Contains(t, wire, `"signature":"opaque"`)
+	assert.Contains(t, wire, `"data":"encrypted"`)
+	assert.Equal(t, 1, strings.Count(wire, `"type":"thinking"`),
+		"only thinking captured while enabled may replay")
+	assert.Equal(t, 1, strings.Count(wire, `"type":"redacted_thinking"`))
 }
 
 func TestNativeThinkingTruncatedToolArguments(t *testing.T) {
@@ -380,7 +444,7 @@ func TestNativeThinkingTruncatedToolArguments(t *testing.T) {
 			var final *llm.Message
 			processStream(
 				strings.NewReader(thinkingStream(events...)),
-				llm.ModelConfig{},
+				"", "",
 				func(ev llm.StreamEvent, err error) bool {
 					require.NoError(t, err)
 					if ev.Final != nil {
@@ -418,7 +482,7 @@ func TestNativeThinkingIgnoresGatewayTrailer(t *testing.T) {
 				`{"type":"content_block_stop","index":0}`,
 				`{"type":"message_stop"}`,
 				`[DONE]`, `gateway trailer`, `{"type":"ping"}`,
-			)), llm.ModelConfig{}, func(ev llm.StreamEvent, err error) bool {
+			)), "", "", func(ev llm.StreamEvent, err error) bool {
 				require.NoError(t, err)
 				if ev.Final != nil {
 					final = ev.Final
@@ -444,6 +508,14 @@ func TestNativeThinkingOnlyFallbackKeepsUserTurns(t *testing.T) {
 		Endpoint: endpointFingerprint(cfg.BaseURL),
 		Items:    []json.RawMessage{json.RawMessage(`{"type":"thinking","thinking":"display","signature":"opaque"}`)},
 	}
+	probe := BuildRequest(cfg, "", []llm.Message{{
+		Role:    llm.RoleUser,
+		Content: "first",
+		Images:  []llm.Image{{MimeType: "image/png", Data: "opaque-image"}},
+	}}, nil)
+	prefix, err := probe.prepareNative()
+	require.NoError(t, err)
+	state.Prefix = prefix
 	other := *state
 	other.Model = "other-model"
 	for _, tt := range []struct {
@@ -469,10 +541,22 @@ func TestNativeThinkingOnlyFallbackKeepsUserTurns(t *testing.T) {
 				{Role: llm.RoleUser, Content: "second"},
 			}
 			req := BuildRequest(cfg, "", messages, nil)
+			if tt.state == nil {
+				// No candidate: the display-only assistant has nothing to send.
+				require.Len(t, req.Messages, 2)
+			} else {
+				// Candidates survive BuildRequest; model and thinking policy are
+				// judged later, against the final request.
+				require.Len(t, req.Messages, 3)
+				if tt.kept {
+					assert.Equal(t, state.Items, req.Messages[1].Content)
+				}
+			}
+			_, err := req.prepareNative()
+			require.NoError(t, err)
 			if tt.kept {
 				require.Len(t, req.Messages, 3)
 				assert.Equal(t, "assistant", req.Messages[1].Role)
-				assert.Equal(t, state.Items, req.Messages[1].Content)
 			} else {
 				// The Messages API combines adjacent same-role turns; preserve their content.
 				require.Len(t, req.Messages, 2)
@@ -511,7 +595,7 @@ func TestNativeThinkingBlockOrderAfterUnreplayableTool(t *testing.T) {
 			)
 			var final *llm.Message
 			var streamErr error
-			processStream(strings.NewReader(stream), llm.ModelConfig{}, func(ev llm.StreamEvent, err error) bool {
+			processStream(strings.NewReader(stream), "", "", func(ev llm.StreamEvent, err error) bool {
 				if err != nil {
 					streamErr = err
 				}

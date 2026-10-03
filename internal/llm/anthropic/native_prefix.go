@@ -13,7 +13,9 @@ import (
 type nativeBlock map[string]json.RawMessage
 
 // prepareNative checks what will actually go on the wire, including hook edits.
-// Hash incrementally so a long history is visited once, not once per signature.
+// Model identity and thinking policy are judged here against the final post-hook
+// request, not the config BuildRequest saw. Hash incrementally so a long history
+// is visited once, not once per signature.
 func (req *AnthropicRequest) prepareNative() (string, error) {
 	header := struct {
 		System []sysBlock      `json:"system"`
@@ -42,9 +44,17 @@ func (req *AnthropicRequest) prepareNative() (string, error) {
 			return "", err
 		}
 		if msg.Role == "assistant" && slices.ContainsFunc(blocks, isThinkingBlock) {
+			// An explicitly disabled request filters thinking blocks from the wire
+			// but leaves persisted history alone. A cleared parameter alone does
+			// not mean "off": unknown endpoints may default thinking on, and the
+			// thinking config is not part of the signature's prefix anyway.
+			// Checked before the comparison so an off request never pays for
+			// canonicalizing the persisted items it is about to discard.
+			thinkingOff := req.Thinking == nil && !req.thinkingRequested
 			state := req.nativeMessages[i]
 			valid := false
-			if state != nil && state.Prefix == hex.EncodeToString(h.Sum(nil)) {
+			if !thinkingOff && state != nil &&
+				state.Model == req.Model && state.Prefix == hex.EncodeToString(h.Sum(nil)) {
 				original, err := nativeBlocks(state.Items)
 				if err != nil {
 					return "", err

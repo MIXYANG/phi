@@ -242,7 +242,7 @@ func TestNormalizeBaseURL(t *testing.T) {
 // processForTest runs processStream and returns the yielded events.
 func processForTest(sse string) []llm.StreamEvent {
 	var events []llm.StreamEvent
-	processStream(strings.NewReader(sse), llm.ModelConfig{}, func(ev llm.StreamEvent, err error) bool {
+	processStream(strings.NewReader(sse), "", "", func(ev llm.StreamEvent, err error) bool {
 		if err != nil {
 			events = append(events, llm.StreamEvent{Type: llm.StreamEventTypeError, Err: err.Error()})
 			return false
@@ -280,6 +280,10 @@ func TestBuildRequestThinkingBudget(t *testing.T) {
 			cfg := llm.ModelConfig{Name: "claude-sonnet-4-20250514", Think: tc.think}
 			req := BuildRequest(cfg, "", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil)
 
+			// A nil thinking config means thinking is off on the wire, whatever
+			// Enabled says; history filtering must read it the same way.
+			assert.Equal(t, tc.wantType != "", req.thinkingRequested,
+				"no thinking on the wire must read as off")
 			require.Equal(t, tc.wantMaxTokens, req.MaxTokens)
 			if tc.wantType == "" {
 				require.Nil(t, req.Thinking, "no thinking field expected")

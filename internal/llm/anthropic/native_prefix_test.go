@@ -20,39 +20,56 @@ func TestNativePrefixChecksWireHistory(t *testing.T) {
 		change     func(*AnthropicRequest)
 		keepFirst  bool
 		keepSecond bool
+		// noFreshReplay marks rows where the request stays thinking-disabled,
+		// so freshly captured thinking cannot replay on the following send.
+		noFreshReplay bool
 	}{
-		{"unchanged hooked request", func(*AnthropicRequest) {}, true, true},
-		{"system", func(r *AnthropicRequest) { r.System[0].Text = "new policy" }, false, false},
-		{"tool description", func(r *AnthropicRequest) { r.Tools[0].Description = "new description" }, false, false},
-		{"tool schema", func(r *AnthropicRequest) { r.Tools[0].InputSchema = json.RawMessage(`{"type":"object"}`) }, false, false},
+		{"unchanged hooked request", func(*AnthropicRequest) {}, true, true, false},
+		{"system", func(r *AnthropicRequest) { r.System[0].Text = "new policy" }, false, false, false},
+		{"tool description", func(r *AnthropicRequest) { r.Tools[0].Description = "new description" }, false, false, false},
+		{"tool schema", func(r *AnthropicRequest) { r.Tools[0].InputSchema = json.RawMessage(`{"type":"object"}`) }, false, false, false},
 		{"schema JSON formatting", func(r *AnthropicRequest) {
 			r.Tools[0].InputSchema = json.RawMessage(`{ "properties": { "counter": {"type": "integer"} }, "type": "object" }`)
-		}, true, true},
-		{"user text", func(r *AnthropicRequest) { r.Messages[0].Content.([]anthropicContentBlock)[0].Text = "changed" }, false, false},
+		}, true, true, false},
+		{"user text", func(r *AnthropicRequest) { r.Messages[0].Content.([]anthropicContentBlock)[0].Text = "changed" }, false, false, false},
 		{"image", func(r *AnthropicRequest) {
 			r.Messages[0].Content.([]anthropicContentBlock)[1].Source.Data = "changed-image"
-		}, false, false},
+		}, false, false, false},
 		{"tool result", func(r *AnthropicRequest) {
 			r.Messages[2].Content.([]anthropicContentBlock)[0].Content = "changed result"
-		}, true, false},
+		}, true, false, false},
 		{"large integer tool input", func(r *AnthropicRequest) {
 			r.Messages[1].Content.([]json.RawMessage)[3] = json.RawMessage(`{"type":"tool_use","id":"call|special","name":"read","input":{"counter":9007199254740993,"cache_control":"value"}}`)
-		}, false, false},
+		}, false, false, false},
 		{"cache_control inside tool input", func(r *AnthropicRequest) {
 			r.Messages[1].Content.([]json.RawMessage)[3] = json.RawMessage(`{"type":"tool_use","id":"call|special","name":"read","input":{"counter":9007199254740992,"cache_control":"changed"}}`)
-		}, false, false},
+		}, false, false, false},
 		{"cache markers and output budget", func(r *AnthropicRequest) {
 			r.System[0].CacheControl = nil
 			r.Tools[0].CacheControl = nil
 			r.Messages[0].Content.([]anthropicContentBlock)[0].CacheControl = &cacheControl{Type: "ephemeral"}
 			r.Messages[4].Content.([]anthropicContentBlock)[0].CacheControl = nil
 			r.MaxTokens++
-		}, true, true},
+		}, true, true, false},
 		{"missing saved prefix", func(r *AnthropicRequest) {
 			state := *r.nativeMessages[1]
 			state.Prefix = ""
 			r.nativeMessages[1] = &state
-		}, false, false},
+		}, false, false, false},
+		{"replayed state model", func(r *AnthropicRequest) {
+			state := *r.nativeMessages[1]
+			state.Model = "other-model"
+			r.nativeMessages[1] = &state
+		}, false, false, false},
+		{"thinking budget", func(r *AnthropicRequest) {
+			budget := 4096
+			r.Thinking.BudgetTokens = &budget
+		}, true, true, false},
+		{"cleared thinking parameter", func(r *AnthropicRequest) { r.Thinking = nil }, true, true, false},
+		{"explicitly disabled thinking", func(r *AnthropicRequest) {
+			r.Thinking = nil
+			r.thinkingRequested = false
+		}, false, false, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			bodies := make(chan json.RawMessage, 1)
@@ -91,7 +108,7 @@ func TestNativePrefixChecksWireHistory(t *testing.T) {
 				API:     llm.Anthropic,
 				Name:    "claude-test",
 				BaseURL: srv.URL,
-				Think:   llm.ThinkConfig{Enabled: true},
+				Think:   llm.ThinkConfig{Enabled: true, Mode: llm.Medium},
 			}
 			defs := []llm.ToolDefinition{{Name: "read", Params: &llm.FunctionParameters{Type: "object"}}}
 			messages := []llm.Message{
@@ -167,12 +184,17 @@ func TestNativePrefixChecksWireHistory(t *testing.T) {
 			require.NoError(t, err)
 			assert.JSONEq(t, string(saved), string(after), "request filtering must not edit session history")
 			assert.NotContains(t, wire, `"prefix"`)
-			assert.Contains(
-				t,
-				send(tt.change),
-				"signature-3",
-				"thinking generated against the edited prefix remains valid",
-			)
+			next := send(tt.change)
+			if tt.noFreshReplay {
+				assert.NotContains(t, next, "signature", "a disabled request filters all thinking")
+			} else {
+				assert.Contains(
+					t,
+					next,
+					"signature-3",
+					"thinking generated against the edited prefix remains valid",
+				)
+			}
 		})
 	}
 }

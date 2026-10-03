@@ -28,9 +28,12 @@ func endpointFingerprint(baseURL string) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(normalizeBaseURL(baseURL))))
 }
 
-func replayNative(cfg llm.ModelConfig, endpoint string, state *llm.NativeState) []json.RawMessage {
-	if !cfg.Think.Enabled || state == nil || state.Version != nativeStateVersion || state.API != llm.Anthropic ||
-		state.Model != cfg.Name || state.Endpoint != endpoint {
+// replayNative keeps the candidate items for any state from the same source:
+// version, API, and endpoint must match. Model and thinking policy can only be
+// judged against the final post-hook request, so prepareNative decides those.
+func replayNative(endpoint string, state *llm.NativeState) []json.RawMessage {
+	if state == nil || state.Version != nativeStateVersion || state.API != llm.Anthropic ||
+		state.Endpoint != endpoint {
 		return nil
 	}
 	// Hooks may modify request bodies; never lend them the session's byte slices.

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -248,7 +249,14 @@ func TestSessionAnthropicNativeOnlyAndLegacy(t *testing.T) {
 		{"redacted only", `{"type":"redacted_thinking","data":"opaque"}`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			bodies := make(chan json.RawMessage, 2)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body json.RawMessage
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				bodies <- body
 				w.Header().Set("Content-Type", "text/event-stream")
 				_, _ = fmt.Fprintf(w, "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":%s}\n\n"+
 					"data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"+
@@ -278,6 +286,7 @@ func TestSessionAnthropicNativeOnlyAndLegacy(t *testing.T) {
 			require.Empty(t, final.Content)
 			require.Empty(t, final.ToolCalls)
 			require.NoError(t, sess.Append(*final))
+			<-bodies
 			resumed, err := NewSession(WithResumePath(sess.File()))
 			require.NoError(t, err)
 			require.NoError(t, resumed.AddUser("continue"))
@@ -287,10 +296,21 @@ func TestSessionAnthropicNativeOnlyAndLegacy(t *testing.T) {
 			require.NoError(t, err)
 			assert.JSONEq(t, "["+tt.block+"]", string(wire))
 
-			cfg.Name = "other-model"
-			req = anthropic.BuildRequest(cfg, "", resumed.BuildContext(), nil)
-			assert.Len(t, req.Messages, 2, "source mismatch must omit an otherwise empty assistant")
-			assert.NotNil(t, resumed.BuildContext()[1].Native, "projection must not erase saved state")
+			// A source switch is judged after hooks: the thinking-only assistant
+			// is filtered from the wire, and the saved state survives untouched.
+			switched := cfg
+			switched.Name = "other-model"
+			req = anthropic.BuildRequest(switched, "", resumed.BuildContext(), nil)
+			require.Len(t, req.Messages, 3, "BuildRequest keeps the candidate")
+			for _, streamErr := range anthropic.Stream(t.Context(), srv.Client(), switched, &req) {
+				require.NoError(t, streamErr)
+			}
+			var sent struct {
+				Messages []json.RawMessage `json:"messages"`
+			}
+			require.NoError(t, json.Unmarshal(<-bodies, &sent))
+			assert.Len(t, sent.Messages, 2, "a model mismatch filters an otherwise empty assistant")
+			assert.NotNil(t, resumed.BuildContext()[1].Native, "filtering must not erase saved state")
 
 			helper, err := NewSession()
 			require.NoError(t, err)
@@ -438,4 +458,83 @@ data: {"type":"message_stop"}
 	require.Len(t, saved, 2)
 	assert.Equal(t, fresh.Native, saved[0])
 	assert.Equal(t, old.Native, saved[1], "context projection must not mutate the saved branch history")
+}
+
+// fixedAliasModel rewrites every request to one model, the way an alias hook
+// configured by an embedder would.
+type fixedAliasModel string
+
+func (model fixedAliasModel) Before(
+	_ context.Context, req *anthropic.AnthropicRequest, _ llm.ModelConfig,
+) error {
+	req.Model = string(model)
+	return nil
+}
+
+func TestSessionAnthropicAliasHookSurvivesRestore(t *testing.T) {
+	type wireRequest struct {
+		Model    string            `json:"model"`
+		Messages []json.RawMessage `json:"messages"`
+	}
+	requests := make(chan wireRequest, 2)
+	var turns atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req wireRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		requests <- req
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprintf(
+			w,
+			`data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":"signature-%d"}}
+
+data: {"type":"content_block_stop","index":0}
+
+data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":"answer"}}
+
+data: {"type":"content_block_stop","index":1}
+
+data: {"type":"message_stop"}
+
+`,
+			turns.Add(1),
+		)
+	}))
+	defer srv.Close()
+	cfg := llm.ModelConfig{
+		API: llm.Anthropic, Name: "alias-a", BaseURL: srv.URL,
+		Think: llm.ThinkConfig{Enabled: true, Mode: llm.Medium},
+	}
+	hooks := llmclient.Hooks{Anthropic: fixedAliasModel("model-b")}
+	dir := t.TempDir()
+	sess, err := NewSession(WithCwd(dir), WithSessionDir(dir), WithPersist(true))
+	require.NoError(t, err)
+	respond := func(s *Session, input string) wireRequest {
+		engine, err := NewEngine(cfg, s, WithHooks(hooks))
+		require.NoError(t, err)
+		for _, loopErr := range engine.Loop(t.Context(), input, LoopOpts{}) {
+			require.NoError(t, loopErr)
+		}
+		return <-requests
+	}
+
+	// The alias reaches the wire, and the captured state records the model
+	// that actually served it.
+	first := respond(sess, "first")
+	assert.Equal(t, "model-b", first.Model)
+	require.NotNil(t, sess.BuildContext()[1].Native)
+	assert.Equal(t, "model-b", sess.BuildContext()[1].Native.Model)
+	assert.NotEmpty(t, sess.BuildContext()[1].Native.Prefix)
+
+	// After save and restore, the rewritten request still matches the state's
+	// model, so the signed history replays.
+	resumed, err := NewSession(WithResumePath(sess.File()))
+	require.NoError(t, err)
+	second := respond(resumed, "second")
+	require.Len(t, second.Messages, 3)
+	assert.Contains(t, string(second.Messages[1]), "signature-1",
+		"restored history keeps its signature under the alias hook")
+	assert.Contains(t, string(second.Messages[1]), "answer")
 }
