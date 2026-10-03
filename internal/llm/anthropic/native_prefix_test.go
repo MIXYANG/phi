@@ -70,6 +70,10 @@ func TestNativePrefixChecksWireHistory(t *testing.T) {
 			r.Thinking = nil
 			r.thinkingRequested = false
 		}, false, false, true},
+		{"hook disables thinking by type", func(r *AnthropicRequest) {
+			r.Thinking.Type = "disabled"
+			r.Thinking.BudgetTokens = nil
+		}, false, false, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			bodies := make(chan json.RawMessage, 1)

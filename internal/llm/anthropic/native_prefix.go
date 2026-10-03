@@ -45,12 +45,15 @@ func (req *AnthropicRequest) prepareNative() (string, error) {
 		}
 		if msg.Role == "assistant" && slices.ContainsFunc(blocks, isThinkingBlock) {
 			// An explicitly disabled request filters thinking blocks from the wire
-			// but leaves persisted history alone. A cleared parameter alone does
-			// not mean "off": unknown endpoints may default thinking on, and the
-			// thinking config is not part of the signature's prefix anyway.
+			// but leaves persisted history alone: a hook may express the off as
+			// thinking.type "disabled" or by clearing the parameter entirely.
+			// A cleared parameter alone does not mean "off" when the config
+			// requested thinking: unknown endpoints may default thinking on, and
+			// the thinking config is not part of the signature's prefix anyway.
 			// Checked before the comparison so an off request never pays for
 			// canonicalizing the persisted items it is about to discard.
-			thinkingOff := req.Thinking == nil && !req.thinkingRequested
+			thinkingOff := (req.Thinking != nil && req.Thinking.Type == "disabled") ||
+				(req.Thinking == nil && !req.thinkingRequested)
 			state := req.nativeMessages[i]
 			valid := false
 			if !thinkingOff && state != nil &&

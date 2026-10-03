@@ -34,15 +34,27 @@ func (clearThinking) Before(_ context.Context, req *anthropic.AnthropicRequest, 
 	return nil
 }
 
+// disableThinking expresses the off the way a provider-specific hook would:
+// thinking.type "disabled" with no budget, leaving the parameter present.
+type disableThinking struct{}
+
+func (disableThinking) Before(_ context.Context, req *anthropic.AnthropicRequest, _ llm.ModelConfig) error {
+	if req.Thinking != nil {
+		req.Thinking.Type = "disabled"
+		req.Thinking.BudgetTokens = nil
+	}
+	return nil
+}
+
 type thinkingServer struct {
 	srv    *httptest.Server
 	bodies chan json.RawMessage
 	turns  atomic.Int32
 }
 
-// newThinkingServer answers every turn with one signed thinking block, a text
-// block and a tool_use block. thinking=false serves the same stream without
-// the thinking block.
+// newThinkingServer answers every turn with one signed thinking block, a
+// redacted thinking block, a text block and a tool_use block. thinking=false
+// serves the same stream without the two thinking blocks.
 func newThinkingServer(thinking bool) *thinkingServer {
 	ts := &thinkingServer{bodies: make(chan json.RawMessage, 8)}
 	ts.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,18 +73,23 @@ func newThinkingServer(thinking bool) *thinkingServer {
 
 data: {"type":"content_block_stop","index":0}
 
+data: {"type":"content_block_start","index":1,"content_block":{"type":"redacted_thinking","data":"encrypted-%d"}}
+
+data: {"type":"content_block_stop","index":1}
+
 `,
+				n,
 				n,
 			)
 		}
 		_, _ = fmt.Fprint(w, head+
-			`data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":"answer"}}
-
-data: {"type":"content_block_stop","index":1}
-
-data: {"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"toolu_read","name":"read","input":{"path":"a.go"}}}
+			`data: {"type":"content_block_start","index":2,"content_block":{"type":"text","text":"answer"}}
 
 data: {"type":"content_block_stop","index":2}
+
+data: {"type":"content_block_start","index":3,"content_block":{"type":"tool_use","id":"toolu_read","name":"read","input":{"path":"a.go"}}}
+
+data: {"type":"content_block_stop","index":3}
 
 data: {"type":"message_stop"}
 
@@ -191,6 +208,74 @@ func TestClientAnthropicClearedThinkingKeepsHistory(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(wire), &sent))
 	assert.Nil(t, sent.Thinking, "the cleared parameter must stay cleared")
+}
+
+func TestClientAnthropicDisabledByTypeFiltersHistory(t *testing.T) {
+	ts := newThinkingServer(true)
+	defer ts.srv.Close()
+	cfg := llm.ModelConfig{
+		API:     llm.Anthropic,
+		Name:    "alias-a",
+		BaseURL: ts.srv.URL,
+		Think:   llm.ThinkConfig{Enabled: true, Mode: llm.Medium},
+	}
+	messages := []llm.Message{{Role: llm.RoleUser, Content: "think"}}
+	client := NewClient(cfg, Hooks{}, nil, "")
+	final := finalOf(t, collectEvents(client.Stream(t.Context(), messages)))
+	require.NotNil(t, final.Native)
+	_ = ts.body()
+	messages = append(messages, *final,
+		llm.Message{Role: llm.RoleTool, ToolCallID: "toolu_read", Content: "ok"})
+	saved, err := json.Marshal(messages)
+	require.NoError(t, err)
+
+	// Same model, same endpoint; only the hook turns thinking off by type.
+	disabled := NewClient(cfg, Hooks{Anthropic: disableThinking{}}, nil, "")
+	finalOf(t, collectEvents(disabled.Stream(t.Context(), messages)))
+	wire := ts.body()
+
+	var sent struct {
+		Thinking struct {
+			Type         string `json:"type"`
+			BudgetTokens *int   `json:"budget_tokens"`
+		} `json:"thinking"`
+		Messages []struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(wire), &sent))
+	assert.Equal(t, "disabled", sent.Thinking.Type, "the hook's disabled type must reach the wire")
+	assert.Nil(t, sent.Thinking.BudgetTokens, "a disabled request carries no budget_tokens")
+
+	// The replayed assistant turn keeps text and tool calls, loses both
+	// thinking block kinds, and stays paired with its tool result.
+	require.Len(t, sent.Messages, 3)
+	var blocks []struct {
+		Type      string          `json:"type"`
+		Text      string          `json:"text"`
+		ID        string          `json:"id"`
+		Input     json.RawMessage `json:"input"`
+		ToolUseID string          `json:"tool_use_id"`
+	}
+	require.NoError(t, json.Unmarshal(sent.Messages[1].Content, &blocks))
+	require.Len(t, blocks, 2)
+	assert.Equal(t, "text", blocks[0].Type)
+	assert.Equal(t, "answer", blocks[0].Text)
+	assert.Equal(t, "tool_use", blocks[1].Type)
+	assert.Equal(t, "toolu_read", blocks[1].ID)
+	assert.JSONEq(t, `{"path":"a.go"}`, string(blocks[1].Input))
+	var result []struct {
+		ToolUseID string `json:"tool_use_id"`
+	}
+	require.NoError(t, json.Unmarshal(sent.Messages[2].Content, &result))
+	require.Len(t, result, 1)
+	assert.Equal(t, blocks[1].ID, result[0].ToolUseID)
+	assert.NotContains(t, wire, `"type":"thinking"`)
+	assert.NotContains(t, wire, `"type":"redacted_thinking"`)
+
+	after, err := json.Marshal(messages)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(saved), string(after), "wire filtering must not edit input history")
 }
 
 func TestClientAnthropicDisabledThinkingSendsPlainRequests(t *testing.T) {
