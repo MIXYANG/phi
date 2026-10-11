@@ -26,3 +26,24 @@ const (
 	EventTurnStopping        = "turn_stopping"
 	EventSessionCompact      = "session_compact"
 )
+
+// EventNames lists every event the host dispatches, in lifecycle order.
+// Handler lookup is pre-aggregated per name, so a handler registered for any
+// other string is accepted by On but never called.
+var EventNames = []string{
+	EventUserInput,
+	EventBeforeAgentStart,
+	EventAgentStart,
+	EventTurnStart,
+	EventToolExecutionStart,
+	EventToolCall,
+	EventToolResult,
+	EventToolExecutionEnd,
+	EventTurnEnd,
+	EventTurnStopping,
+	EventAgentEnd,
+	EventSessionBeforeSwitch,
+	EventSessionStart,
+	EventSessionShutdown,
+	EventSessionCompact,
+}
