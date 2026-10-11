@@ -461,7 +461,7 @@ func TestDrawPaintsFormAndStatus(t *testing.T) {
 func modelHeader(t *testing.T, text, name string) string {
 	t.Helper()
 	for l := range strings.SplitSeq(text, "\n") {
-		if strings.HasPrefix(l, "│   "+name) {
+		if strings.HasPrefix(l, "│   "+name) || strings.HasPrefix(l, "│ > "+name) {
 			return strings.TrimRight(l, " │")
 		}
 	}
@@ -486,7 +486,7 @@ func TestDrawAlignsModelHeadersToValueColumn(t *testing.T) {
 	// paint over the badge.
 	name := "deepseek-v4-flash"
 	pad := strings.Repeat(" ", col-xModel-len(name))
-	assert.Equal(t, "│   "+name+pad+"default · OpenAIResponses · 1M context", modelHeader(t, text, name))
+	assert.Equal(t, "│ > "+name+pad+"default · OpenAIResponses · 1M context", modelHeader(t, text, name))
 	assert.Equal(t,
 		"│   glm-5.2"+strings.Repeat(" ", col-xModel-len("glm-5.2"))+"OpenAIResponses · 1M context",
 		modelHeader(t, text, "glm-5.2"))
@@ -707,9 +707,8 @@ func TestFormColumnsKeepOneQuietTone(t *testing.T) {
 	}
 }
 
-// TestSelectedRowIsOneStripe pins what a cursor used to do to the two columns: a
-// hole in the stripe behind a trailing hint, "not set" promoted into looking
-// exactly like a value, and emphasis moved onto the label column.
+// Empty fields retain their placeholder tone while the active label and the
+// entire row carry focus, including the trailing hint.
 func TestSelectedRowIsOneStripe(t *testing.T) {
 	doc := &project.ConfigDoc{Models: []project.ModelDoc{{Name: "model-a"}}}
 	e := newTestEditor(t, doc)
@@ -729,11 +728,11 @@ func TestSelectedRowIsOneStripe(t *testing.T) {
 	label := paintedStyle(t, out, xModelField, y)
 	empty := paintedStyle(t, out, e.valueCol(), y)
 	assert.Equal(t, th.SelectionFg.Fg, label.Fg, "the selected label stays readable")
-	assert.False(t, label.Bold, "the label never outweighs the value")
+	assert.True(t, label.Bold, "the active label identifies focus even when the value is unset")
 	assert.Equal(t, secondaryStyle(th).Fg, empty.Fg, "a selected empty field still reads as empty")
 	assert.False(t, empty.Dim, "the quiet tone stays flat, on the stripe too")
 
-	// A filled row puts the emphasis on the value, not on the label.
+	// Both the label and a filled value carry focus.
 	focus(t, e, modelKey(0, fName))
 	out = drawForm(t, e)
 	y = formRowY(t, e, modelKey(0, fName))
@@ -741,7 +740,7 @@ func TestSelectedRowIsOneStripe(t *testing.T) {
 	filled := paintedStyle(t, out, e.valueCol(), y)
 	assert.Equal(t, th.SelectionFg.Fg, filled.Fg)
 	assert.True(t, filled.Bold, "the value column carries the emphasis")
-	assert.False(t, filledLabel.Bold)
+	assert.True(t, filledLabel.Bold)
 }
 
 func TestHumanTokens(t *testing.T) {

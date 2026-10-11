@@ -38,6 +38,12 @@ const (
 	BashPrompt   = "$ "
 )
 
+// FocusMarker flags the keyboard cursor's row. ASCII on purpose: it must stay
+// legible when colors (and with them the selection stripe) are downgraded or
+// gone. Distinct from SelectArrow (▸, the decision-row arrow) and
+// FilterPrompt (>, an input prompt) by job, not just by glyph.
+const FocusMarker = ">"
+
 // CurrentMarker is the leading "you are here" column for a list of choices:
 // the branch-picker dot when current, else a blank of equal width so labels
 // stay aligned. One glyph for the whole product — any list that marks a

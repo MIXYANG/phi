@@ -31,6 +31,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Config editor: add a `>` focus marker and bold the active field label so
+  keyboard navigation remains visible when selection colors disappear.
+- TUI and config editor: detect Windows Terminal's truecolor support even when
+  `TERM` and `COLORTERM` are absent, preserving explicit color overrides.
 - Extensions: a reload racing an unload could leak a child process that nothing
   could close.
 - Extensions: the host sink was rebound without synchronization, so a session
