@@ -409,17 +409,19 @@ them under management.
 
 ### Host layers
 
-`internal/extension` is layered, and dependencies point down only.
+`internal/extension` is split into semantic subpackages (Cordis-style), dependencies point down only.
 
 | Path | Layer | Owns |
 |------|-------|------|
-| `internal/extension` | host surface | `Runner` (aggregates processes into phi tools / slash commands / event intercepts), `Load`, `BusUI` |
-| `internal/extension/core` | kernel | one `Proc` per extension: PXB framing, handshake, RPC + timeouts, teardown |
+| `internal/extension` | facade | re-exports (`Runner`, `FiberState`, `BusUI`, …) + `Load` — what agent/tui/cmd import |
+| `internal/extension/core` | kernel | one `Proc` per extension (PXB framing, handshake, RPC + timeouts, teardown), the `Fiber` state machine around it, and the `Runner` that aggregates fibers into the read model and owns load/unload/reload |
+| `internal/extension/ui` | host UI | `BusUI`: extension toasts / status / confirm → host callbacks |
 | `internal/extension/loader` | config | `phi.yaml` (`Manifest`) and directory discovery |
 | `internal/extension/install` | distribution | the extensions dir as a store: install / update / remove / list + install metadata |
 | `internal/extension/create` | scaffolding | `Materialize` (test and example extensions) |
 
-Imports point down only: `extension → core → loader`, `install → loader`, `create` on its own.
+Imports point down only: `extension/ui → core/loader`, `core → loader`,
+`install → loader`; `create` stands alone.
 `agent` and `tui` import just the top package; `cmd` is the sole importer of `install`.
 
 The layering follows [cordis](https://github.com/cordiverse/cordis) `packages/*`,
@@ -427,11 +429,11 @@ so its mechanisms can be lifted one at a time:
 
 | cordis | here |
 |--------|------|
-| `core` (Context / Fiber / Service / Registry) | `core` — a `Proc` is the Fiber: started → registered → closed |
+| `core` (Context / Fiber / Service / Registry) | `core` — `proc.go` (`Proc`), `fiber.go` (`Fiber`: pending → active → disposed), `runner.go`/`view.go`/`manage.go` (`Runner` + read model): one package, like cordis |
 | `loader` (config entry → plugin runtime) | `loader` (entries) + `Load` (entry → running process) |
 | `include` (durable entry set, add/remove) | `install` — `.phi-install.json` is the entry journal |
 | `create` | `create` |
-| `hmr` (swap a live plugin) | not yet — reload swaps the whole `Runner` (`Controller.swapExtensionRunner`) |
+| `hmr` (swap a live plugin) | not ported |
 | `group` (grouped entries, per-group config) | not yet — user/project dirs are the only grouping (`loader.Source*`) |
 
 ## Migration from yaegi

@@ -1,4 +1,4 @@
-package extension
+package core
 
 import (
 	"context"
@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 
-	"github.com/pulseaiclub/phi/internal/extension/core"
 	"github.com/pulseaiclub/phi/internal/extension/loader"
 
 	ext "github.com/pulseaiclub/phi/ext/go"
@@ -21,22 +21,75 @@ import (
 
 const maxContextBytes = 4 * 1024
 
+// NewRunner returns an empty runner rooted at logDir (where extension child
+// logs are written). Fibers are added by the lifecycle package.
+func NewRunner(logDir string) *Runner {
+	return &Runner{
+		fibers: make(map[string]*Fiber),
+		logDir: logDir,
+	}
+}
+
+// AddFiber registers an already-loaded fiber. Used by the lifecycle package
+// after a successful start; the caller owns the handoff.
+func (r *Runner) AddFiber(f *Fiber) {
+	if r == nil || f == nil {
+		return
+	}
+	r.mu.Lock()
+	r.fibers[f.ID] = f
+	r.invalidateLocked()
+	r.mu.Unlock()
+	r.notifyChange()
+}
+
 // Runner holds loaded extensions and dispatches events.
 // A nil *Runner is safe and is a no-op.
+//
+// mu guards the topology (fibers, warns, host opts, tool config) and the cached
+// read model in view. Mutating operations that block on a subprocess (start,
+// close, handshake) hold only the fiber's own operation lock, never mu — the
+// write paths below snapshot what they need and do the I/O outside the lock.
 type Runner struct {
-	mu      sync.Mutex
-	apis    []*ext.API
-	procs   []*core.Proc
-	loaded  []loader.Discovered
-	warns   []loader.Warning
+	mu      sync.RWMutex
+	fibers  map[string]*Fiber // key: extension name
+	view    *model            // cached read model; nil = rebuild from fibers
 	ui      ext.UI
 	cwd     string
 	session string
 	hasUI   bool
+	logDir  string
 
 	baseTools   []tools.Tool
 	activeNames map[string]bool // nil = all active
 	host        ext.HostOpts
+
+	onChange atomic.Pointer[func()]
+}
+
+// SetOnChange registers a hook fired after the extension topology changes —
+// load, unload or hot swap. It runs on whichever goroutine performed the
+// change (a UI action) and must not block: hosts use it to re-derive tool
+// schemas and refresh the UI.
+func (r *Runner) SetOnChange(fn func()) {
+	if r == nil {
+		return
+	}
+	if fn == nil {
+		r.onChange.Store(nil)
+		return
+	}
+	r.onChange.Store(&fn)
+}
+
+// notifyChange runs the topology hook, if any.
+func (r *Runner) notifyChange() {
+	if r == nil {
+		return
+	}
+	if p := r.onChange.Load(); p != nil && *p != nil {
+		(*p)()
+	}
 }
 
 // Close shuts down every extension subprocess.
@@ -45,35 +98,27 @@ func (r *Runner) Close() {
 		return
 	}
 	r.mu.Lock()
-	procs := append([]*core.Proc(nil), r.procs...)
-	r.procs = nil
+	fibers := r.fiberListLocked()
+	r.fibers = nil
+	r.invalidateLocked()
 	r.mu.Unlock()
-	for _, p := range procs {
-		_ = p.Close()
+	for _, f := range fibers {
+		_ = f.Unload()
 	}
 }
 
-// Loaded returns discovered extensions that were loaded.
+// Loaded returns discovered extensions that were loaded, in name order.
 func (r *Runner) Loaded() []loader.Discovered {
 	if r == nil {
 		return nil
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	out := make([]loader.Discovered, len(r.loaded))
-	copy(out, r.loaded)
-	return out
-}
-
-// Warnings returns non-fatal load issues.
-func (r *Runner) Warnings() []loader.Warning {
-	if r == nil {
-		return nil
+	names := r.Names()
+	out := make([]loader.Discovered, 0, len(names))
+	for _, name := range names {
+		if f := r.Fiber(name); f != nil {
+			out = append(out, f.Discovered)
+		}
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	out := make([]loader.Warning, len(r.warns))
-	copy(out, r.warns)
 	return out
 }
 
@@ -82,48 +127,84 @@ func (r *Runner) Bind(opts ext.HostOpts) {
 	if r == nil {
 		return
 	}
+	if opts.GetActiveTools == nil {
+		opts.GetActiveTools = func() []string {
+			return toolNames(r.snapshot().activeTools)
+		}
+	}
+	if opts.SetActiveTools == nil {
+		opts.SetActiveTools = r.SetActiveTools
+	}
+	if opts.GetAllTools == nil {
+		opts.GetAllTools = func() []ext.ToolInfo {
+			return r.snapshot().tools
+		}
+	}
+
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.ui = opts.UI
 	r.cwd = opts.Cwd
 	r.session = opts.SessionID
 	r.hasUI = opts.HasUI
-	if opts.GetActiveTools == nil {
-		opts.GetActiveTools = func() []string {
-			r.mu.Lock()
-			defer r.mu.Unlock()
-			return r.getActiveToolsLocked()
-		}
-	}
-	if opts.SetActiveTools == nil {
-		opts.SetActiveTools = func(names []string) {
-			r.mu.Lock()
-			defer r.mu.Unlock()
-			r.setActiveToolsLocked(names)
-		}
-	}
-	if opts.GetAllTools == nil {
-		opts.GetAllTools = func() []ext.ToolInfo {
-			r.mu.Lock()
-			defer r.mu.Unlock()
-			return r.getAllToolsLocked()
-		}
-	}
 	r.host = opts
-	for _, api := range r.apis {
-		api.BindHost(opts)
-	}
-	// Forward spontaneous Notify frames / host requests from extension processes.
-	for _, p := range r.procs {
-		p.SetHostSink(procSink{runner: r, proc: p, ui: opts.UI, sendUser: opts.SendUserMessage})
+	fibers := r.fiberListLocked()
+	r.mu.Unlock()
+
+	for _, f := range fibers {
+		r.wire(f, opts)
 	}
 }
 
-// procSink is the sink core.Proc uses to hand spontaneous frames back to the
+// wire connects the host side of one fiber: the API receives the host opts and
+// the process receives the frame sink that forwards Notify / host requests.
+// Every path that produces a live process — initial load, hot swap, resume —
+// funnels through here, so a swapped-in process can never come up unwired.
+func (r *Runner) wire(f *Fiber, opts ext.HostOpts) {
+	if f == nil {
+		return
+	}
+	if api := f.API(); api != nil {
+		api.BindHost(opts)
+	}
+	if proc := f.Proc(); proc != nil {
+		proc.SetHostSink(procSink{runner: r, proc: proc, ui: opts.UI, sendUser: opts.SendUserMessage})
+	}
+}
+
+// hostOpts snapshots the bound host options.
+func (r *Runner) hostOpts() ext.HostOpts {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.host
+}
+
+// SetActiveTools restricts the tool set exposed to the agent (nil = all).
+func (r *Runner) SetActiveTools(names []string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.activeNames = make(map[string]bool, len(names))
+	for _, n := range names {
+		r.activeNames[n] = true
+	}
+	r.invalidateLocked()
+}
+
+func toolNames(infos []ext.ToolInfo) []string {
+	out := make([]string, len(infos))
+	for i, info := range infos {
+		out[i] = info.Name
+	}
+	return out
+}
+
+// procSink is the sink Proc uses to hand spontaneous frames back to the
 // host: notifications turn into UI effects, host requests get answered.
 type procSink struct {
 	runner   *Runner
-	proc     *core.Proc
+	proc     *Proc
 	ui       ext.UI
 	sendUser func(string)
 }
@@ -149,7 +230,7 @@ func (s procSink) HostRequest(id uint32, hasID bool, req pxb.HostRequest) {
 }
 
 func (*Runner) handleHostRequest(
-	p *core.Proc,
+	p *Proc,
 	id uint32,
 	hasID bool,
 	req pxb.HostRequest,
@@ -195,16 +276,21 @@ func (r *Runner) SetMeta(sessionID, cwd string) {
 		return
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.session = sessionID
 	r.cwd = cwd
 	r.host.SessionID = sessionID
 	r.host.Cwd = cwd
-	for _, api := range r.apis {
-		api.BindHost(r.host)
-	}
-	for _, p := range r.procs {
-		p.PushSessionMeta(sessionID, cwd)
+	opts := r.host
+	fibers := r.fiberListLocked()
+	r.mu.Unlock()
+
+	// Pipe writes stay outside the lock: a wedged child must not stall the
+	// read paths.
+	for _, f := range fibers {
+		r.wire(f, opts)
+		if proc := f.Proc(); proc != nil {
+			proc.PushSessionMeta(sessionID, cwd)
+		}
 	}
 }
 
@@ -215,74 +301,17 @@ func (r *Runner) SetBaseTools(base []tools.Tool) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.baseTools = base
-}
-
-func (r *Runner) getActiveToolsLocked() []string {
-	all := r.allToolNamesLocked()
-	if r.activeNames == nil {
-		return all
-	}
-	var out []string
-	for _, n := range all {
-		if r.activeNames[n] {
-			out = append(out, n)
-		}
-	}
-	return out
-}
-
-func (r *Runner) setActiveToolsLocked(names []string) {
-	r.activeNames = make(map[string]bool, len(names))
-	for _, n := range names {
-		r.activeNames[n] = true
-	}
-}
-
-func (r *Runner) getAllToolsLocked() []ext.ToolInfo {
-	var out []ext.ToolInfo
-	for _, t := range r.baseTools {
-		out = append(out, ext.ToolInfo{
-			Name:        t.Definition.Name,
-			Description: t.Definition.Description,
-			Source:      "builtin",
-		})
-	}
-	for _, api := range r.apis {
-		for _, t := range api.Tools() {
-			out = append(out, ext.ToolInfo{
-				Name:        t.Name,
-				Description: t.Description,
-				Source:      "extension",
-			})
-		}
-	}
-	return out
-}
-
-func (r *Runner) allToolNamesLocked() []string {
-	infos := r.getAllToolsLocked()
-	out := make([]string, len(infos))
-	for i, info := range infos {
-		out[i] = info.Name
-	}
-	return out
+	r.baseTools = append([]tools.Tool(nil), base...)
+	r.invalidateLocked()
 }
 
 // ExtensionTools converts registered extension tools to tools.Tool.
+// The result is cached and must be treated as read-only.
 func (r *Runner) ExtensionTools() []tools.Tool {
 	if r == nil {
 		return nil
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	var out []tools.Tool
-	for _, api := range r.apis {
-		for _, def := range api.Tools() {
-			out = append(out, toolFromDef(def))
-		}
-	}
-	return out
+	return r.snapshot().extTools
 }
 
 func toolFromDef(def ext.Tool) tools.Tool {
@@ -335,24 +364,12 @@ func schemaFromMap(m map[string]any) *llm.FunctionParameters {
 }
 
 // CommandEntries lists slash commands from all extensions.
+// The result is cached and must be treated as read-only.
 func (r *Runner) CommandEntries() []ext.CommandEntry {
 	if r == nil {
 		return nil
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	var out []ext.CommandEntry
-	seen := make(map[string]bool)
-	for _, api := range r.apis {
-		for _, e := range api.CommandEntries() {
-			if seen[e.Name] {
-				continue
-			}
-			seen[e.Name] = true
-			out = append(out, e)
-		}
-	}
-	return out
+	return r.snapshot().commands
 }
 
 // CommandOutcome is returned from RunCommand for host UI side effects.
@@ -365,14 +382,11 @@ func (r *Runner) RunCommand(name, args string) (CommandOutcome, error) {
 	if r == nil {
 		return CommandOutcome{}, errors.New("extension: no runner")
 	}
-	r.mu.Lock()
-	procs := append([]*core.Proc(nil), r.procs...)
-	apis := append([]*ext.API(nil), r.apis...)
-	r.mu.Unlock()
-
-	for _, p := range procs {
-		if p.HasCommand(name) {
-			resp, err := p.CallCommand(context.Background(), name, args)
+	fibers := r.fiberList()
+	for _, f := range fibers {
+		proc := f.Proc()
+		if proc != nil && proc.HasCommand(name) {
+			resp, err := proc.CallCommand(context.Background(), name, args)
 			if err != nil {
 				return CommandOutcome{}, err
 			}
@@ -386,7 +400,11 @@ func (r *Runner) RunCommand(name, args string) (CommandOutcome, error) {
 		}
 	}
 
-	for _, api := range apis {
+	for _, f := range fibers {
+		api := f.API()
+		if api == nil {
+			continue
+		}
 		cmds := api.Commands()
 		cmd, ok := cmds[name]
 		if !ok {
@@ -632,19 +650,19 @@ func (r *Runner) emitNotify(event string, payload any) {
 	}
 }
 
+// handlers returns the cached handler list for event. Registration is
+// write-once per extension and the cache is dropped on every topology change,
+// so this is a map lookup instead of a walk over all fibers.
 func (r *Runner) handlers(event string) []any {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	var out []any
-	for _, api := range r.apis {
-		out = append(out, api.Handlers(event)...)
+	if r == nil {
+		return nil
 	}
-	return out
+	return r.snapshot().handlers[event]
 }
 
 func (r *Runner) context() *ext.Context {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return &ext.Context{Cwd: r.cwd, SessionID: r.session, HasUI: r.hasUI, UI: r.ui}
 }
 

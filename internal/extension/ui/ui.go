@@ -1,4 +1,4 @@
-package extension
+package ui
 
 import ext "github.com/pulseaiclub/phi/ext/go"
 

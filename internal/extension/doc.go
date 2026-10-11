@@ -5,19 +5,26 @@
 //
 // # Layers
 //
-// The package is split into layers with a one-way dependency graph, so an
-// extension feature lands in exactly one place:
+// The package is split into semantic subpackages with a one-way dependency
+// graph, so an extension feature lands in exactly one place (Cordis-style):
 //
-//	extension/          host surface: Runner, Load, BusUI        — what agent/tui/cmd import
-//	├── create/         scaffolding: Materialize (dev/test helper)
-//	├── install/        distribution: ~/.phi/extensions contents — install, update, remove, list
-//	├── core/           kernel: one extension subprocess         — spawn, handshake, RPC, dispose
-//	└── loader/         config: phi.yaml manifest + discovery    — which extensions exist
+//	extension/            this package: facade re-exports + Load      — what agent/tui/cmd import
+//	├── core/             kernel: Proc (one subprocess) + Fiber (its  — spawn, handshake, RPC,
+//	│                         lifecycle state machine) + Runner       — dispose, topology, read model
+//	├── ui/               BusUI: extension UI effects → host callbacks
+//	├── loader/           config: phi.yaml manifest + discovery       — which extensions exist
+//	├── install/          distribution: install, update, remove, list — cmd is the only consumer
+//	└── create/           scaffolding: Materialize (dev/test helper)
 //
-// Arrows point down only: extension → core → loader, and install → loader.
-// Nothing imports upward, and the kernel knows nothing about phi's tools, TUI
-// or CLI. install and create are leaves that never reach the host surface;
-// cmd is the only consumer of install.
+// Load (load.go) bootstraps: it discovers directories through the loader and
+// starts every extension through core. Arrows point down only:
+// this package → core/loader, install → loader; create stands alone. Nothing
+// imports upward, and loader knows nothing about the processes above it.
+//
+// The split mirrors cordis packages/core, which keeps Context / Fiber /
+// Registry as files of one package — here core is that package: proc.go
+// (PXB transport), fiber.go (state machine), runner.go / view.go / manage.go
+// (the Runner and its read model).
 //
 // See doc/extensions.md for the protocol and the author-facing SDK.
 package extension
