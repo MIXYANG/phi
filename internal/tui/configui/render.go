@@ -16,11 +16,21 @@ import (
 // labels and one line of values.
 const (
 	xSection    = 2
+	xFocus      = 2
 	xModel      = 4
 	xField      = 4
 	xModelField = 6
 	xNested     = 8
 )
+
+// labelX is the column a row's label starts at: model fields sit one level
+// deeper than top-level fields.
+func labelX(key string) int {
+	if _, _, ok := splitModelKey(key); ok {
+		return xModelField
+	}
+	return xField
+}
 
 // valueCol is the shared value column; it shrinks on narrow terminals.
 func (e *ConfigEditor) valueCol() int {
@@ -121,11 +131,14 @@ func (e *ConfigEditor) paintRow(s *components.Surface, y int, r row, selected bo
 		}
 		base = th.SelectionFg
 		base.Bg = bg
-		// Text on the stripe takes the stripe's tone, but the label column stays
-		// one weight below the value column: the eye belongs on the data, not on
-		// the key names.
+		base.Bold = true
+		base.Dim = false
+		// Color downgrade can erase the stripe; the gutter marker and bold
+		// label keep focus visible independently of background colors.
+		if xFocus < s.Size.Width-1 {
+			s.Print(xFocus, y, chrome.FocusMarker, base, method)
+		}
 		secondary = base
-		secondary.Bold = false
 	}
 	switch r.kind {
 	case rowSection:
@@ -186,13 +199,9 @@ func (e *ConfigEditor) paintField(
 	method xui.WidthMethod,
 ) {
 	th := e.themeOrDefault()
-	x := xField
-	if _, _, ok := splitModelKey(r.key); ok {
-		x = xModelField
-	}
+	x := labelX(r.key)
 	col := e.valueCol()
-	// Labels are a reading aid: they never take emphasis away from the value
-	// column, on or off the stripe.
+	// The active label carries focus even when the value is unset.
 	labelStyle := secondary
 	s.Print(x, y, layout.TruncateToWidth(r.label, max(col-x-2, 1), method), labelStyle, method)
 
