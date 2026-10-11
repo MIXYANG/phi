@@ -35,7 +35,7 @@ func runConfigEditor() error {
 		return err
 	}
 
-	vx, err := xui.New(xui.Options{Mouse: true, BracketedPaste: true})
+	vx, err := newTerminalUI()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi: terminal UI:", err)
 		return exitCode(ExitError)
