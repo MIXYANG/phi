@@ -143,15 +143,9 @@ func (h *ExtCommands) Register(r *CommandRegistry) {
 			if ctx != nil {
 				push = ctx.PushSubmenu
 			}
-			return buildExtensionsPalette(h.ListEntries, h.Reload, push)
+			return h.buildExtensionsPalette(push)
 		},
 	})
-}
-
-// ListEntries builds disabled palette rows from discovery results + warnings.
-func (h *ExtCommands) ListEntries() []palette.PaletteCommand {
-	found, warns, err := h.Ctrl.ListExtensions()
-	return ExtensionListEntries(found, warns, err)
 }
 
 // Reload rescans extensions and refreshes the slash/palette surface.
@@ -177,8 +171,46 @@ func (h *ExtCommands) Reload() {
 	})
 }
 
-func buildExtensionsPalette(
-	listFn func() []palette.PaletteCommand,
+// ReloadOne hot-reloads a single extension by name.
+func (h *ExtCommands) ReloadOne(name string) {
+	if err := h.Ctrl.ReloadExtension(name); err != nil {
+		publishToast(h.Bus, "Failed to reload "+name+": "+err.Error(), toast.ToastError, 3*time.Second)
+		return
+	}
+	h.Sync()
+	publishToast(h.Bus, "Reloaded extension: "+name, toast.ToastSuccess, 2*time.Second)
+}
+
+// UnloadOne unloads a single extension by name.
+func (h *ExtCommands) UnloadOne(name string) {
+	if err := h.Ctrl.UnloadExtension(name); err != nil {
+		publishToast(h.Bus, "Failed to unload "+name+": "+err.Error(), toast.ToastError, 3*time.Second)
+		return
+	}
+	h.Sync()
+	publishToast(h.Bus, "Unloaded extension: "+name, toast.ToastSuccess, 2*time.Second)
+}
+
+// ListStates returns extension names with their current states.
+func (h *ExtCommands) ListStates() map[string]string {
+	states := h.Ctrl.ListExtensionStates()
+	result := make(map[string]string, len(states))
+	for name, state := range states {
+		result[name] = state.String()
+	}
+	return result
+}
+
+func (h *ExtCommands) buildExtensionsPalette(
+	push func(string, []palette.PaletteCommand),
+) palette.PaletteCommand {
+	return ExtensionsPalette(h.buildExtensionList, h.Reload, push)
+}
+
+// ExtensionsPalette builds the "extensions" palette row from its actions, which
+// keeps the row testable without a controller.
+func ExtensionsPalette(
+	list func() []palette.PaletteCommand,
 	reload func(),
 	push func(string, []palette.PaletteCommand),
 ) palette.PaletteCommand {
@@ -194,33 +226,96 @@ func buildExtensionsPalette(
 				Verb:     "list",
 				Keywords: []string{"show", "status", "loaded"},
 				Run: func() {
-					cmds := []palette.PaletteCommand{{
-						ID:       "extensions-list-empty",
-						Verb:     "No extensions found",
-						Disabled: true,
-					}}
-					if listFn != nil {
-						if built := listFn(); len(built) > 0 {
-							cmds = built
-						}
-					}
+					cmds := list()
 					if push != nil {
-						push("Extensions on disk", cmds)
+						push("Extensions", cmds)
 					}
 				},
 			},
 			{
 				ID:       "extensions-reload",
-				Verb:     "reload",
+				Verb:     "reload all",
 				Keywords: []string{"refresh", "rescan", "discover"},
-				Run: func() {
-					if reload != nil {
-						reload()
-					}
-				},
+				Run:      reload,
 			},
 		},
 	}
+}
+
+func (h *ExtCommands) buildExtensionList() []palette.PaletteCommand {
+	found, warns, err := h.Ctrl.ListExtensions()
+	states := h.ListStates()
+
+	if err != nil {
+		return []palette.PaletteCommand{{
+			ID:       "extensions-list-err",
+			Verb:     "error: " + err.Error(),
+			Disabled: true,
+		}}
+	}
+
+	if len(found) == 0 && len(warns) == 0 {
+		return []palette.PaletteCommand{{
+			ID:       "extensions-list-empty",
+			Verb:     "No extensions found",
+			Disabled: true,
+		}}
+	}
+
+	out := make([]palette.PaletteCommand, 0, len(found)+len(warns))
+
+	// List extensions with state and actions
+	for _, d := range found {
+		state := "unknown"
+		if s, ok := states[d.Manifest.Name]; ok {
+			state = s
+		}
+
+		verb := fmt.Sprintf("%s [%s]", loader.FormatDiscovered(d), state)
+		if d.Manifest.Enabled != nil && !*d.Manifest.Enabled {
+			verb += " (disabled)"
+		}
+
+		extCmd := palette.PaletteCommand{
+			ID:           "ext-" + d.ID,
+			Verb:         verb,
+			Keywords:     []string{d.ID, d.Source, state},
+			SubmenuTitle: d.Manifest.Name,
+			Submenu: []palette.PaletteCommand{
+				{
+					ID:       fmt.Sprintf("ext-%s-reload", d.ID),
+					Verb:     "reload",
+					Keywords: []string{"hot", "swap", "restart"},
+					Run: func() {
+						name := d.Manifest.Name
+						h.ReloadOne(name)
+					},
+				},
+				{
+					ID:       fmt.Sprintf("ext-%s-unload", d.ID),
+					Verb:     "unload",
+					Keywords: []string{"stop", "remove", "disable"},
+					Run: func() {
+						name := d.Manifest.Name
+						h.UnloadOne(name)
+					},
+				},
+			},
+		}
+		out = append(out, extCmd)
+	}
+
+	// Add warnings
+	for i, w := range warns {
+		out = append(out, palette.PaletteCommand{
+			ID:       fmt.Sprintf("extensions-warn-%d", i),
+			Verb:     "warn: " + w.String(),
+			Keywords: []string{"warning", "error"},
+			Disabled: true,
+		})
+	}
+
+	return out
 }
 
 // ExtensionListEntries builds disabled palette rows from discovery results + warnings.
@@ -242,9 +337,13 @@ func ExtensionListEntries(found []loader.Discovered, warns []loader.Warning, err
 		return out
 	}
 	for _, d := range found {
+		verb := loader.FormatDiscovered(d)
+		if d.Manifest.Enabled != nil && !*d.Manifest.Enabled {
+			verb += " (disabled)"
+		}
 		out = append(out, palette.PaletteCommand{
 			ID:       "ext-" + d.ID,
-			Verb:     loader.FormatDiscovered(d),
+			Verb:     verb,
 			Keywords: []string{d.ID, d.Source},
 			Disabled: true,
 		})

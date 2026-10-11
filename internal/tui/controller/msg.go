@@ -52,6 +52,13 @@ type FooterMsg struct {
 
 func (FooterMsg) isMsg() {}
 
+// ExtTopologyChangedMsg reports that the loaded extensions or what they
+// register changed outside the palette — a manual reload, or an extension
+// reloading itself. The Editor re-derives the slash surface from it.
+type ExtTopologyChangedMsg struct{}
+
+func (ExtTopologyChangedMsg) isMsg() {}
+
 // ToastMsg asks the Editor to show a transient overlay notification.
 // Producers Publish this instead of holding a toast callback.
 type ToastMsg struct {
