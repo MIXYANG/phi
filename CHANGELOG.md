@@ -10,19 +10,31 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- Sessions picker: delete a session with `Ctrl+X` then `Y`. The confirm is
-  in-place; the list refreshes keeping the filter query, and deleting the
-  current session starts a fresh one.
-- CLI: `phi sessions remove <id>` (alias `rm`) deletes a persisted session by
-  id prefix.
+- Extensions: reload or unload a single extension from the palette
+  (`/extensions`) without restarting the others. A replacement that fails to
+  start leaves the old process serving; an extension whose process dies on its
+  own is reported as failed instead of staying "active".
+- Extension panel: list extensions with live state, drill in to reload/unload.
+- Go extension SDK: `ext.EventNames`.
+- Sessions picker: delete a session with `Ctrl+X` then `Y`.
+- CLI: `phi sessions remove <id>` (alias `rm`).
 
 ### Changed
+
+- Extensions: event dispatch serves one cached snapshot (~75ns/2 allocs →
+  ~7ns/0 allocs per tool call) with stable extension-name ordering; palette
+  commands refresh when extensions reload or unload.
 
 ### Deprecated
 
 ### Removed
 
 ### Fixed
+
+- Extensions: a reload racing an unload could leak a child process that nothing
+  could close.
+- Extensions: the host sink was rebound without synchronization, so a session
+  switch or hot swap could drop or corrupt notifications and confirm frames.
 
 ### Security
 

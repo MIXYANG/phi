@@ -266,6 +266,33 @@ func (c *EngineController) ListExtensions() ([]loader.Discovered, []loader.Warni
 	return loader.Discover(c.proj.Global().ExtensionsDir(), c.proj.ExtensionsDir())
 }
 
+// ReloadExtension hot-reloads a single extension by name.
+func (c *EngineController) ReloadExtension(name string) error {
+	r := c.extRunner.Load()
+	if r == nil {
+		return errors.New("no extension runner loaded")
+	}
+	return r.ReloadExtension(name)
+}
+
+// UnloadExtension unloads a single extension by name.
+func (c *EngineController) UnloadExtension(name string) error {
+	r := c.extRunner.Load()
+	if r == nil {
+		return errors.New("no extension runner loaded")
+	}
+	return r.UnloadExtension(name)
+}
+
+// ListExtensionStates returns all extension states.
+func (c *EngineController) ListExtensionStates() map[string]extension.FiberState {
+	r := c.extRunner.Load()
+	if r == nil {
+		return nil
+	}
+	return r.ListExtensions()
+}
+
 // loadExtensions discovers ~/.phi/extensions and <cwd>/.phi/extensions.
 // Load errors are non-fatal (fail-open: no extensions).
 func loadExtensions(proj *project.Project) *extension.Runner {
@@ -316,15 +343,29 @@ func (c *EngineController) bindExtensionHost(r *extension.Runner) {
 		Cwd:       cwd,
 		SessionID: sessionID,
 		HasUI:     true,
-		RefreshTools: func() {
-			if c.engine != nil {
-				c.engine.SetExtensions(r)
-			}
-		},
+		// RefreshTools is called by an extension, on its own reader goroutine.
+		// Rebinding the engine's tools from there would race the agent loop, so
+		// it takes the same route as any other topology change: a message the
+		// UI goroutine applies.
+		RefreshTools: func() { c.publish(ExtTopologyChangedMsg{}) },
 		SendUserMessage: func(text string) {
 			go c.StartPrompt(text, nil, nil)
 		},
 	})
+
+	// Topology changes (extension-initiated reload/unload) happen off the
+	// UI goroutine, so they arrive as a message instead of a direct call.
+	r.SetOnChange(func() { c.publish(ExtTopologyChangedMsg{}) })
+}
+
+// SyncExtensionTools re-derives the agent's tool list from the current runner.
+// Call it on the UI goroutine: it rebinds the engine's client and executor, so
+// an extension reader goroutine must not.
+func (c *EngineController) SyncExtensionTools() {
+	if c.engine == nil {
+		return
+	}
+	c.engine.SetExtensions(c.Extensions())
 }
 
 func (c *EngineController) askTimeout() time.Duration {

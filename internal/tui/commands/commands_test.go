@@ -136,28 +136,35 @@ func TestExtensionsCommand_ListAndReload(t *testing.T) {
 	var reloaded bool
 	var pushedTitle string
 	var pushed []palette.PaletteCommand
-	cmd := buildExtensionsPalette(func() []palette.PaletteCommand {
-		return []palette.PaletteCommand{{
-			ID:       "ext-demo",
-			Verb:     "demo  [project]",
-			Disabled: true,
-		}}
-	}, func() { reloaded = true }, func(title string, cmds []palette.PaletteCommand) {
-		pushedTitle = title
-		pushed = cmds
-	})
+	cmd := ExtensionsPalette(
+		func() []palette.PaletteCommand {
+			return []palette.PaletteCommand{{
+				ID:       "ext-demo",
+				Verb:     "demo  [project]",
+				Disabled: true,
+			}}
+		},
+		func() { reloaded = true },
+		func(title string, cmds []palette.PaletteCommand) {
+			pushedTitle = title
+			pushed = cmds
+		},
+	)
 
 	assert.Equal(t, "extensions", cmd.Noun)
 	assert.Equal(t, "manage", cmd.Verb)
 	require.Len(t, cmd.Submenu, 2)
 
 	cmd.Submenu[0].Run() // list → PushSubmenu
-	assert.Equal(t, "Extensions on disk", pushedTitle)
+	assert.Equal(t, "Extensions", pushedTitle)
 	require.NotEmpty(t, pushed)
 	assert.Equal(t, "ext-demo", pushed[0].ID)
 
 	cmd.Submenu[1].Run() // reload
 	assert.True(t, reloaded)
+
+	// A nil push must not panic when the list row runs.
+	ExtensionsPalette(nil, nil, nil)
 }
 
 func TestExtensionListEntries(t *testing.T) {
@@ -282,14 +289,16 @@ func TestCommandRegistry_BuildPalette(t *testing.T) {
 	})
 	r.Register(Command{
 		Name: "extensions",
-		Build: func(ctx Context) palette.PaletteCommand {
-			var push func(string, []palette.PaletteCommand)
-			if ctx != nil {
-				push = ctx.PushSubmenu
+		Build: func(Context) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:           "extensions",
+				Noun:         "extensions",
+				Verb:         "manage",
+				SubmenuTitle: "Extensions",
+				Submenu: []palette.PaletteCommand{
+					{ID: "ext-list", Verb: "list", Run: func() { pushed = true }},
+				},
 			}
-			return buildExtensionsPalette(func() []palette.PaletteCommand {
-				return []palette.PaletteCommand{{ID: "ext-x", Verb: "x", Disabled: true}}
-			}, nil, push)
 		},
 	})
 	(&SkillsCommands{SkillPath: t.TempDir()}).Register(r)

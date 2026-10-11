@@ -54,7 +54,10 @@ type Proc struct {
 	closed   atomic.Bool
 	stopOnce sync.Once
 
-	sink HostSink
+	// sink is read by readLoop (spontaneous frames) and by RPC callers
+	// (CommandResponse notify) while the host may re-wire it — a session switch
+	// or a hot swap rebinds it on a live process, so it needs a real barrier.
+	sink atomic.Pointer[HostSink]
 }
 
 // HostSink receives frames the extension sends on its own initiative instead of
@@ -65,10 +68,25 @@ type HostSink interface {
 	HostRequest(id uint32, hasID bool, req pxb.HostRequest)
 }
 
-// SetHostSink installs the sink for spontaneous frames. Set it before the
-// process is driven concurrently; later calls are not synchronized with readLoop.
+// SetHostSink installs the sink for spontaneous frames: notifications and host
+// requests (confirm, send_user_message). Without a sink those frames are dropped.
 func (p *Proc) SetHostSink(sink HostSink) {
-	p.sink = sink
+	if p == nil {
+		return
+	}
+	p.sink.Store(&sink)
+}
+
+// hostSink returns the installed sink, if any.
+func (p *Proc) hostSink() (HostSink, bool) {
+	if p == nil {
+		return nil, false
+	}
+	sink := p.sink.Load()
+	if sink == nil || *sink == nil {
+		return nil, false
+	}
+	return *sink, true
 }
 
 type frameResult struct {
@@ -273,8 +291,8 @@ func (p *Proc) readLoop() {
 				debuglog.Logf("extension %q: notify decode: %v", p.Manifest.Name, err)
 				continue
 			}
-			if p.sink != nil {
-				p.sink.Notify(n)
+			if sink, ok := p.hostSink(); ok {
+				sink.Notify(n)
 			}
 		case pxb.TypeHostRequest:
 			req, err := pxb.DecodeHostRequest(f.Body)
@@ -282,8 +300,8 @@ func (p *Proc) readLoop() {
 				debuglog.Logf("extension %q: host request decode: %v", p.Manifest.Name, err)
 				continue
 			}
-			if p.sink != nil {
-				p.sink.HostRequest(f.ID, f.Flags&pxb.FlagHasID != 0, req)
+			if sink, ok := p.hostSink(); ok {
+				sink.HostRequest(f.ID, f.Flags&pxb.FlagHasID != 0, req)
 			}
 		case pxb.TypeShutdownAck:
 			return
@@ -451,8 +469,10 @@ func (p *Proc) CallCommand(ctx context.Context, name, args string) (pxb.CommandR
 	if err != nil {
 		return pxb.CommandResponse{}, err
 	}
-	if resp.Notify != "" && p.sink != nil {
-		p.sink.Notify(pxb.NotifyMsg{Level: "info", Message: resp.Notify})
+	if resp.Notify != "" {
+		if sink, ok := p.hostSink(); ok {
+			sink.Notify(pxb.NotifyMsg{Level: "info", Message: resp.Notify})
+		}
 	}
 	return resp, nil
 }
@@ -607,6 +627,14 @@ func (p *Proc) Close() error {
 		p.finish(true)
 	}
 	return nil
+}
+
+// Closed reports whether the subprocess is gone — shut down by the host or
+// exited on its own (readLoop error, crash). A dead process keeps its
+// registration data but can no longer serve RPCs, so callers use this to avoid
+// advertising a healthy extension that is actually gone.
+func (p *Proc) Closed() bool {
+	return p == nil || p.closed.Load()
 }
 
 // Tools returns tools registered during handshake (copy).

@@ -82,6 +82,9 @@ func (a *API) Handlers(event string) []any {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	hs := a.handlers[event]
+	if len(hs) == 0 {
+		return nil
+	}
 	out := make([]any, len(hs))
 	copy(out, hs)
 	return out

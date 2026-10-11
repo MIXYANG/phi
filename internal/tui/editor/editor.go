@@ -250,6 +250,11 @@ func (e *Editor) Update(m controller.Msg) {
 		e.vx.QueueRefresh()
 	case controller.ExtCommandResultMsg:
 		e.extCmds.Apply(msg)
+	case controller.ExtTopologyChangedMsg:
+		// Extensions changed underneath us (a reload): the agent still holds the old
+		// tool schemas and the palette the commands of the process that died.
+		e.ctrl.SyncExtensionTools()
+		e.extCmds.Sync()
 	case controller.JobProgressMsg:
 		// Applied in drainBus so we can skip Sync when the tree is unchanged.
 	}
