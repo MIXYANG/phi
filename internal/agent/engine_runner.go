@@ -33,7 +33,7 @@ type EngineRunner struct {
 	ModelFn      func(role job.Role) llm.ModelConfig // if set, preferred over Model
 	Gate         permission.Gate                     // nil → SpecForRole(job.Role).Mode on WorkDir
 	Tools        []tools.Tool                        // nil → SpecForRole(job.Role).Tools
-	MaxRounds    int                                 // 0 → Engine default
+	MaxRounds    int                                 // <=0 → model budget or Engine default
 	Extensions   *extension.Runner
 	ExtensionsFn func() *extension.Runner
 }

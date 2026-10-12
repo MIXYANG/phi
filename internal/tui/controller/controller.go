@@ -43,6 +43,7 @@ type EngineController struct {
 
 	sessionDir string
 	cwd        string
+	modelMu    sync.RWMutex // Protect model snapshots read by background jobs.
 	modelCfg   llm.ModelConfig
 	// roleModels maps sub-agent role → model name. Empty → inherit modelCfg.
 	roleModels map[job.Role]string
@@ -192,11 +193,12 @@ func (c *EngineController) modelForRole(role job.Role) llm.ModelConfig {
 	role = job.NormalizeRole(string(role))
 	if name := c.roleModels[role]; name != "" {
 		if m, ok := c.proj.Config().FindModel(name); ok {
+			m.MaxRounds = c.MaxRounds()
 			return m
 		}
 		debuglog.Logf("agents: unknown role model %q for %s; using parent", name, role)
 	}
-	return c.modelCfg
+	return c.modelSnapshot()
 }
 
 // RoleModel returns the session-only model name for a sub-agent role.
@@ -468,6 +470,10 @@ func (c *EngineController) SetModel(name string) error {
 	if _, _, err := c.ReloadExtensions(); err != nil {
 		debuglog.Logf("extension: reload on SetModel: %v", err)
 	}
+	c.modelMu.Lock()
+	defer c.modelMu.Unlock()
+	// The palette budget belongs to the session, independent of the model.
+	cfg.MaxRounds = c.modelCfg.MaxRounds
 	c.engine.SetModelWithHooks(cfg, model.HooksFor(cfg.Name))
 	c.modelCfg = cfg
 	return nil
@@ -475,6 +481,8 @@ func (c *EngineController) SetModel(name string) error {
 
 // SetThinkLevel changes the thinking level for the current session.
 func (c *EngineController) SetThinkLevel(mode llm.ThinkMode) {
+	c.modelMu.Lock()
+	defer c.modelMu.Unlock()
 	c.modelCfg.Think.Mode = mode
 	c.modelCfg.Think.Enabled = mode != llm.Off
 	c.engine.SetModel(c.modelCfg)
@@ -482,22 +490,45 @@ func (c *EngineController) SetThinkLevel(mode llm.ThinkMode) {
 
 // ThinkLevel returns the current thinking mode.
 func (c *EngineController) ThinkLevel() llm.ThinkMode {
-	return c.modelCfg.Think.Mode
+	return c.modelSnapshot().Think.Mode
 }
 
 // ModelName returns the active model name.
 func (c *EngineController) ModelName() string {
-	return c.modelCfg.Name
+	return c.modelSnapshot().Name
 }
 
 // ContextWindow returns the active model's context window in tokens, so the
 // UI can re-render context pressure after a model switch.
 func (c *EngineController) ContextWindow() int {
-	return c.modelCfg.ContextWindow
+	return c.modelSnapshot().ContextWindow
+}
+
+// MaxRounds returns the session's tool round budget; zero means the engine default.
+func (c *EngineController) MaxRounds() int {
+	return c.modelSnapshot().MaxRounds
+}
+
+func (c *EngineController) modelSnapshot() llm.ModelConfig {
+	c.modelMu.RLock()
+	defer c.modelMu.RUnlock()
+	return c.modelCfg
+}
+
+// SetMaxRounds updates the session-only max rounds budget.
+func (c *EngineController) SetMaxRounds(n int) error {
+	if n <= 0 {
+		return fmt.Errorf("max rounds must be positive, got %d", n)
+	}
+	c.modelMu.Lock()
+	defer c.modelMu.Unlock()
+	c.modelCfg.MaxRounds = n
+	c.engine.SetMaxRounds(n)
+	return nil
 }
 
 func (c *EngineController) ImageEnabled() bool {
-	return c.modelCfg.ImageEnabled
+	return c.modelSnapshot().ImageEnabled
 }
 
 func (c *EngineController) SessionID() string {
@@ -539,8 +570,10 @@ func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 	if sessCwd := eng.SessionCwd(); sessCwd != "" && c.cwd != "" && sessCwd != c.cwd {
 		cwdWarning = fmt.Sprintf("cwd %s ≠ %s", filepath.Base(sessCwd), filepath.Base(c.cwd))
 	}
+	c.modelMu.Lock()
 	c.engine = eng
 	c.modelCfg = cfg
+	c.modelMu.Unlock()
 	c.emitSessionStart("resume", eng.SessionID(), prevID)
 	return cwdWarning, nil
 }
@@ -560,8 +593,10 @@ func (c *EngineController) NewSession() error {
 	if err != nil {
 		return err
 	}
+	c.modelMu.Lock()
 	c.engine = engine
 	c.modelCfg = cfg
+	c.modelMu.Unlock()
 	c.emitSessionStart("new", engine.SessionID(), prevID)
 	return nil
 }
@@ -588,8 +623,8 @@ func (c *EngineController) beginSessionSwitch(reason, targetID string, cancelStr
 }
 
 func (c *EngineController) resolveModel() (llm.ModelConfig, error) {
-	if c.modelCfg.Name != "" {
-		return c.modelCfg, nil
+	if cfg := c.modelSnapshot(); cfg.Name != "" {
+		return cfg, nil
 	}
 	if err := c.proj.LoadConfig(); err != nil {
 		return llm.ModelConfig{}, err

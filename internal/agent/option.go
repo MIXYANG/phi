@@ -45,7 +45,7 @@ func WithTools(list []tools.Tool) EngineOption {
 	return func(c *engineConfig) { c.tools = list }
 }
 
-// WithMaxRounds sets the tool-round budget (0 = package default).
+// WithMaxRounds overrides the model's tool-round budget when n is positive.
 func WithMaxRounds(n int) EngineOption {
 	return func(c *engineConfig) { c.maxRounds = n }
 }
