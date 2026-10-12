@@ -10,6 +10,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [0.28.5] - 2026-10-12
+
+### Added
+
 - Tool-round budgets: configure `max_rounds` for interactive runs, headless runs,
   and sub-agents; adjust the active budget from the settings palette. Session
   overrides survive model switches, and `phi run --max-rounds` overrides config.
@@ -984,7 +998,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.28.4...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.28.5...HEAD
+[0.28.5]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.5
 [0.28.4]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.4
 [0.28.3]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.3
 [0.28.2]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.2
