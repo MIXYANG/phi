@@ -56,6 +56,9 @@ type Editor struct {
 
 	ctrl *controller.EngineController
 
+	agentHub  *overlays.AgentHub
+	pinnedBar string // cached pinned bar text
+
 	commands  *commands.CommandRegistry
 	sessions  *commands.SessionCommands
 	extCmds   *commands.ExtCommands
@@ -104,7 +107,7 @@ func NewEditor(
 	e.transcript.SetUsageCallback(e.footer.UpdateTokenDisplay)
 	e.footer.BindComposer(e.composer)
 	e.footer.SetLabelContext(e.transcript.Snapshot)
-	e.footer.SetLiveJobs(func() int { return e.ctrl.LiveJobCount() })
+	e.footer.SetLiveJobs(func() int { return e.agentHub.LiveCount() })
 	e.overlays = overlays.NewOverlays(
 		theme,
 		e.footer.Activity(),
@@ -140,6 +143,12 @@ func NewEditor(
 			e.Publish(controller.ToastMsg{Message: msg, Kind: toast.ToastSuccess, Duration: 2 * time.Second})
 		},
 	)
+
+	if ctrl.JobManager() != nil {
+		e.agentHub = overlays.NewAgentHub(ctrl.JobManager())
+	} else {
+		e.agentHub = overlays.NewAgentHub(nil)
+	}
 
 	builtins := commands.NewBuiltinRegistry(
 		e.bus,
@@ -276,6 +285,7 @@ func (e *Editor) drainBus() {
 			if e.transcript.ApplyJobProgress(msg.Progress) {
 				agentEvent = true
 			}
+			e.agentHub.ApplyProgress(msg.Progress)
 		default:
 			e.Update(m)
 		}
@@ -290,7 +300,7 @@ func (e *Editor) drainBus() {
 }
 
 func (e *Editor) blocksComposer() bool {
-	if e.overlays.BlocksComposer() {
+	if e.overlays.BlocksComposer() || e.agentHub.Active() {
 		return true
 	}
 	if e.diff.Active() {
@@ -302,6 +312,7 @@ func (e *Editor) blocksComposer() bool {
 // openDiff and openCode each close the other: two full-screen overlays cannot
 // both own the frame, and the one underneath would come back on the next Esc.
 func (e *Editor) openDiff(args []string) {
+	e.agentHub.Close()
 	e.code.Close()
 	e.diff.OpenGit(e.cwd, args)
 	e.captureOverlayFocus()
@@ -324,6 +335,7 @@ func (e *Editor) openCode(args []string) {
 			path, line = base, n
 		}
 	}
+	e.agentHub.Close()
 	e.diff.Close()
 	e.code.OpenAt(path, line)
 	e.captureOverlayFocus()
@@ -338,6 +350,20 @@ func (e *Editor) captureOverlayFocus() {
 func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	if ke, ok := ev.(xui.KeyEvent); ok && ke.CtrlC() {
 		e.composer.Handle(ctx, ev)
+		return
+	}
+	if e.overlays.Active() {
+		e.composer.Handle(ctx, ev)
+		return
+	}
+	if ke, ok := ev.(xui.KeyEvent); ok && e.handleHubToggle(ctx, ke) {
+		return
+	}
+	if e.agentHub.Active() {
+		e.agentHub.Handle(ctx, ev, e.theme, e.footer.Spinner())
+		if !e.agentHub.Active() {
+			e.composer.FocusChat()
+		}
 		return
 	}
 	if e.diff.Active() {
@@ -360,6 +386,9 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 }
 
 func (e *Editor) handleCopyKey(ctx *components.EventContext, ke xui.KeyEvent) bool {
+	if e.handleHubToggle(ctx, ke) {
+		return true
+	}
 	return e.transcript.HandleCopyKey(ctx, ke)
 }
 
@@ -369,12 +398,24 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 
 	e.footer.AdvanceTick()
 	_ = e.toast.Visible()
+	if e.ctrl.JobManager() != nil {
+		e.agentHub.Refresh(e.ctrl.SessionID())
+	}
+	e.pinnedBar = e.agentHub.PinnedBar(e.footer.Spinner().Glyph())
+	if e.overlays.Active() {
+		e.agentHub.Close()
+		e.diff.Close()
+		e.code.Close()
+	}
 
 	if e.diff.Active() {
 		return e.drawOverlay(ctx, e.diff.Draw(ctx))
 	}
 	if e.code.Active() {
 		return e.drawOverlay(ctx, e.code.Draw(ctx))
+	}
+	if e.agentHub.Active() {
+		return e.drawOverlay(ctx, e.agentHub.Draw(ctx, e.theme, e.footer.Spinner().Glyph()))
 	}
 
 	maxSize := ctx.Max
@@ -407,9 +448,12 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 		}
 	}
 	listH := maxSize.Height - chatH - footerH
+	// Reserve space for the pinned sub-agent bar.
+	pinnedH := e.pinnedBarHeight()
+	listH -= pinnedH
 	if listH < 3 {
 		listH = 3
-		chatH = maxSize.Height - listH - footerH
+		chatH = maxSize.Height - listH - footerH - pinnedH
 		chatH = max(chatH, 5)
 	}
 
@@ -426,11 +470,19 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 
 	root.Children = []components.SubSurface{
 		{Origin: components.Point{X: 0, Y: 0}, Surface: listSurf},
-		{Origin: components.Point{X: 0, Y: listH}, Surface: chatSurf, Z: 1},
+		{Origin: components.Point{X: 0, Y: listH + pinnedH}, Surface: chatSurf, Z: 1},
 		{Origin: components.Point{X: 0, Y: maxSize.Height - footerH}, Surface: footerSurf, Z: 2},
 	}
+	if pinnedH > 0 {
+		bar := components.NewSurface(maxSize.Width, 1, nil)
+		bar.Print(0, 0, e.pinnedBar, e.theme.ToolName, ctx.Method)
+		root.Children = append(
+			root.Children,
+			components.SubSurface{Origin: components.Point{Y: listH}, Surface: bar, Z: 2},
+		)
+	}
 	if !e.overlays.Active() {
-		root.Children = append(root.Children, e.composer.PickerOverlays(ctx, listH, maxSize.Width)...)
+		root.Children = append(root.Children, e.composer.PickerOverlays(ctx, listH+pinnedH, maxSize.Width)...)
 	}
 	if pal, ok := e.composer.PaletteOverlay(ctx); ok {
 		root.Children = append(root.Children, pal)
@@ -467,6 +519,33 @@ func (e *Editor) drawOverlay(ctx components.DrawContext, root components.Surface
 
 func (e *Editor) requestRedraw() {
 	e.App.RequestRedraw()
+}
+
+func (e *Editor) handleHubToggle(ctx *components.EventContext, ke xui.KeyEvent) bool {
+	if !ke.Press || !ke.Mods.Has(xui.ModAlt) || (ke.Rune != 'a' && ke.Rune != 'A') || e.overlays.Active() {
+		return false
+	}
+	if e.ctrl.JobManager() != nil {
+		e.agentHub.Refresh(e.ctrl.SessionID())
+	}
+	e.agentHub.Toggle()
+	if e.agentHub.Active() {
+		e.diff.Close()
+		e.code.Close()
+		e.captureOverlayFocus()
+	} else {
+		e.composer.FocusChat()
+	}
+	ctx.ConsumeAndRedraw()
+	return true
+}
+
+// pinnedBarHeight returns 1 when there are active sub-agents, 0 otherwise.
+func (e *Editor) pinnedBarHeight() int {
+	if e.pinnedBar != "" {
+		return 1
+	}
+	return 0
 }
 
 // RequestRedraw asks the app to repaint (safe to bind onto controller.RedrawRelay / controller.Bus).

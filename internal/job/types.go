@@ -33,21 +33,22 @@ func (s Status) Terminal() bool {
 
 // Meta is persisted as meta.json.
 type Meta struct {
-	ID          string    `json:"id"`
-	ParentID    string    `json:"parent_id,omitempty"`
-	ParentDepth int       `json:"parent_depth"`
-	Role        Role      `json:"role,omitempty"` // explore | worker | review; empty → explore
-	Prompt      string    `json:"prompt"`
-	Description string    `json:"description,omitempty"`
-	WorkDir     string    `json:"workdir,omitempty"`
-	Status      Status    `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
-	StartedAt   time.Time `json:"started_at,omitempty"`
-	FinishedAt  time.Time `json:"finished_at,omitempty"`
-	Error       string    `json:"error,omitempty"`
-	ResultPath  string    `json:"result_path,omitempty"`
-	EventsPath  string    `json:"events_path,omitempty"`
-	Dir         string    `json:"dir"`
+	ID          string     `json:"id"`
+	ParentID    string     `json:"parent_id,omitempty"`
+	ParentDepth int        `json:"parent_depth"`
+	Role        Role       `json:"role,omitempty"` // explore | worker | review; empty → explore
+	Prompt      string     `json:"prompt"`
+	Description string     `json:"description,omitempty"`
+	WorkDir     string     `json:"workdir,omitempty"`
+	Status      Status     `json:"status"`
+	CreatedAt   time.Time  `json:"created_at"`
+	StartedAt   time.Time  `json:"started_at,omitempty"`
+	FinishedAt  time.Time  `json:"finished_at,omitempty"`
+	Error       string     `json:"error,omitempty"`
+	ResultPath  string     `json:"result_path,omitempty"`
+	EventsPath  string     `json:"events_path,omitempty"`
+	Dir         string     `json:"dir"`
+	Usage       UsageDelta `json:"usage"`
 }
 
 // Info is a list/get snapshot.

@@ -139,6 +139,9 @@ func (c *EngineController) startJobProgress() {
 }
 
 func (c *EngineController) shouldPublishJobProgress(p job.Progress) bool {
+	if p.Usage != nil || p.Name == "" {
+		return true
+	}
 	key := p.JobID + "\x00" + p.ToolUseID
 	if p.ToolUseID == "" {
 		key = p.JobID + "\x00" + p.Name + "\x00" + p.Detail
@@ -541,6 +544,11 @@ func (c *EngineController) SessionDir() string {
 
 func (c *EngineController) LiveJobCount() int {
 	return c.jobs.LiveCount()
+}
+
+// JobManager returns the underlying job manager (for AgentHub wiring).
+func (c *EngineController) JobManager() *job.Manager {
+	return c.jobs
 }
 
 func (c *EngineController) SessionFile() string {

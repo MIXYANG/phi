@@ -8,6 +8,17 @@ import (
 	"github.com/pulseaiclub/phi/internal/job"
 )
 
+func TestUsageAndLifecycleAlwaysInvalidateHub(t *testing.T) {
+	c := &EngineController{}
+	for _, p := range []job.Progress{
+		{JobID: "j", Usage: &job.UsageDelta{InputTokens: 1}},
+		{JobID: "j", Status: "completed"},
+	} {
+		require.True(t, c.shouldPublishJobProgress(p))
+		require.True(t, c.shouldPublishJobProgress(p))
+	}
+}
+
 func TestShouldPublishJobProgressDedup(t *testing.T) {
 	c := &EngineController{}
 	p := job.Progress{

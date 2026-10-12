@@ -10,6 +10,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Sub-agents: parallel task spawning, sequential chains with previous-step summaries,
+  and batch waits that retain completed results when the wait times out.
+- Agent Hub: Alt+A opens job status and token usage; select a job and press Enter
+  to inspect its isolated transcript. Active jobs appear above the composer.
+- Sub-agent steering: send a message through `agent_wait` to redirect a running
+  job at the next round boundary, with bounded queues and injection counts.
+
 ### Changed
 
 ### Deprecated

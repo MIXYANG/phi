@@ -279,6 +279,16 @@ type LoopOpts struct {
 	PendingSkills []string
 	// Images are base64 attachments from the composer pending queue.
 	Images []llm.Image
+	// OnUsage receives each complete provider response before the tool budget
+	// check, so rejected tool requests still contribute billed usage.
+	OnUsage func(llm.Usage)
+	// OnRoundEnd supplies steering after the assistant and all tool results are
+	// persisted. A non-empty batch continues even a text-only round.
+	OnRoundEnd func() []string
+	// OnStopping performs a final atomic drain/close before normal completion.
+	OnStopping func() []string
+	// OnSteeringInjected acknowledges successfully persisted messages.
+	OnSteeringInjected func(count int)
 }
 
 // Loop appends the user prompt and runs inference + tool rounds until the
@@ -321,6 +331,22 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		}); err != nil {
 			yield(nil, err)
 			return
+		}
+
+		inject := func(drain func() []string) (bool, error) {
+			if drain == nil || ctx.Err() != nil {
+				return false, nil
+			}
+			messages := drain()
+			for _, text := range messages {
+				if err := engine.session.Append(llm.Message{Role: llm.RoleUser, Content: text}); err != nil {
+					return false, err
+				}
+				if opts.OnSteeringInjected != nil {
+					opts.OnSteeringInjected(1)
+				}
+			}
+			return len(messages) > 0, nil
 		}
 
 		toolRounds := 0
@@ -367,6 +393,10 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				return
 			}
 
+			if opts.OnUsage != nil {
+				opts.OnUsage(msg.Usage)
+			}
+
 			// Defer publishing and persisting the terminal assistant update until
 			// the tool budget is checked. An over-budget tool request must not
 			// leave an unexecuted tool call in the session or UI.
@@ -400,6 +430,12 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 
 			if len(msg.ToolCalls) == 0 {
 				engine.extensions.EmitTurnEnd(toolRounds)
+				if injected, err := inject(opts.OnRoundEnd); err != nil {
+					yield(nil, err)
+					return
+				} else if injected {
+					continue
+				}
 				if cont, steer := engine.extensions.EmitTurnStopping(toolRounds); cont {
 					steerMsg := steer
 					if steerMsg == "" {
@@ -411,6 +447,12 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 						yield(nil, err)
 						return
 					}
+					continue
+				}
+				if injected, err := inject(opts.OnStopping); err != nil {
+					yield(nil, err)
+					return
+				} else if injected {
 					continue
 				}
 				// Turn finished — compact using this assistant's usage. The
@@ -435,6 +477,10 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 
 			if ctx.Err() != nil {
+				return
+			}
+			if _, err := inject(opts.OnRoundEnd); err != nil {
+				yield(nil, err)
 				return
 			}
 		}
