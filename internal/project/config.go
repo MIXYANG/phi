@@ -19,6 +19,7 @@ type Config struct {
 	Models       []llm.ModelConfig
 	DefaultModel string // name of the default model; "" → first entry
 	SkillPath    string
+	MaxRounds    int // tool round budget; 0 → agent default (64)
 	Permissions  permission.Policy
 	Agents       AgentsConfig
 }
@@ -40,22 +41,24 @@ type AgentsRoleModels struct {
 	Worker  string `yaml:"worker,omitempty"`
 }
 
-// Model returns the default model config with the skill path applied, ready
+// Model returns the default model config with the skill path and budget applied, ready
 // for agent.NewEngine.
 func (c *Config) Model() llm.ModelConfig {
 	m := *c.defaultEntry()
+	m.MaxRounds = c.MaxRounds
 	if m.SkillPath == "" {
 		m.SkillPath = c.SkillPath
 	}
 	return m
 }
 
-// AllModels returns every configured model with the skill path applied — the
+// AllModels returns every configured model with the skill path and budget applied — the
 // complete set of switchable models.
 func (c *Config) AllModels() []llm.ModelConfig {
 	all := make([]llm.ModelConfig, len(c.Models))
 	copy(all, c.Models)
 	for i := range all {
+		all[i].MaxRounds = c.MaxRounds
 		if all[i].SkillPath == "" {
 			all[i].SkillPath = c.SkillPath
 		}
@@ -149,6 +152,9 @@ func parseConfigFile(path string) (*Config, error) {
 	}
 	if raw.SkillPath != nil {
 		cfg.SkillPath = *raw.SkillPath
+	}
+	if raw.MaxRounds != nil && *raw.MaxRounds > 0 {
+		cfg.MaxRounds = *raw.MaxRounds
 	}
 	if raw.Permissions != nil {
 		applyPermissions(&cfg.Permissions, raw.Permissions)

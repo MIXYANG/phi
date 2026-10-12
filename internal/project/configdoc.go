@@ -16,6 +16,7 @@ import (
 type ConfigDoc struct {
 	Models      []ModelDoc `yaml:"models"`
 	SkillPath   *string    `yaml:"skill_path,omitempty"`
+	MaxRounds   *int       `yaml:"max_rounds,omitempty"`
 	Permissions *PermDoc   `yaml:"permissions,omitempty"`
 	Agents      *AgentsDoc `yaml:"agents,omitempty"`
 }

@@ -75,6 +75,8 @@ type ModelConfig struct {
 	// ContextWindow is the model's context window in tokens.
 	// Zero disables session compaction (safe default).
 	ContextWindow int
+	// MaxRounds is the tool-round budget. Zero → engine default (64).
+	MaxRounds int
 	// ImageEnabled opts this model into image attachments (clipboard / @file).
 	// Absent or false keeps the composer from attaching images.
 	ImageEnabled bool

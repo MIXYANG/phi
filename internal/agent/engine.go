@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"iter"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/agent/prompt"
@@ -41,7 +42,7 @@ type ContinueFunc func(ctx context.Context, maxRounds int) (bool, error)
 type Engine struct {
 	client       *llmclient.Client
 	executor     *Executor
-	maxRounds    int
+	maxRounds    atomic.Int64
 	modelCfg     llm.ModelConfig
 	hooks        llmclient.Hooks
 	gate         permission.Gate
@@ -66,7 +67,6 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 		opt(&cfg)
 	}
 	engine := &Engine{
-		maxRounds:    defaultMaxToolRounds,
 		modelCfg:     model,
 		hooks:        cfg.hooks,
 		session:      sess,
@@ -78,9 +78,11 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 		omitExtTools: cfg.omitExtTools,
 		mcp:          cfg.mcp,
 	}
+	maxRounds := model.MaxRounds
 	if cfg.maxRounds > 0 {
-		engine.maxRounds = cfg.maxRounds
+		maxRounds = cfg.maxRounds
 	}
+	engine.SetMaxRounds(maxRounds)
 	engine.baseTools = cfg.tools
 	engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
 	engine.extensions.SetMeta(engine.SessionID(), engine.SessionCwd())
@@ -154,6 +156,18 @@ func (engine *Engine) SetJobs(jobs *job.Manager) {
 	}
 	engine.jobs = jobs
 	engine.rebindTools()
+}
+
+// SetMaxRounds updates the tool-round budget and is safe to call during Loop.
+// Non-positive values restore the package default.
+func (engine *Engine) SetMaxRounds(n int) {
+	if engine == nil {
+		return
+	}
+	if n <= 0 {
+		n = defaultMaxToolRounds
+	}
+	engine.maxRounds.Store(int64(n))
 }
 
 func (engine *Engine) rebindTools() {
@@ -356,18 +370,19 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			// Defer publishing and persisting the terminal assistant update until
 			// the tool budget is checked. An over-budget tool request must not
 			// leave an unexecuted tool call in the session or UI.
-			if len(msg.ToolCalls) > 0 && toolRounds >= engine.maxRounds {
+			maxRounds := int(engine.maxRounds.Load())
+			if len(msg.ToolCalls) > 0 && toolRounds >= maxRounds {
 				if engine.continueAsk == nil {
-					yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, engine.maxRounds))
+					yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, maxRounds))
 					return
 				}
-				ok, askErr := engine.continueAsk(ctx, engine.maxRounds)
+				ok, askErr := engine.continueAsk(ctx, maxRounds)
 				if askErr != nil {
 					yield(nil, askErr)
 					return
 				}
 				if !ok {
-					yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, engine.maxRounds))
+					yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, maxRounds))
 					return
 				}
 				// Granted: reset the budget; the current and following tool

@@ -10,6 +10,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Tool-round budgets: configure `max_rounds` for interactive runs, headless runs,
+  and sub-agents; adjust the active budget from the settings palette. Session
+  overrides survive model switches, and `phi run --max-rounds` overrides config.
 - Extensions: reload or unload a single extension from the palette
   (`/extensions`) without restarting the others. A replacement that fails to
   start leaves the old process serving; an extension whose process dies on its

@@ -160,6 +160,7 @@ models:
     think_level: high       # 可选：off | minimal | low | medium | high | …
 
 skill_path: ~/.phi/skills # SKILL.md 文件的加载目录
+max_rounds: 64            # 工具轮次预算；0 → 引擎默认值（64）
 
 agents:
   enabled: true           # 默认；设为 false 可禁用 agent_* 子代理工具
