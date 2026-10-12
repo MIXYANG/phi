@@ -15,12 +15,6 @@ type RunEnv struct {
 	Log         func(message string)
 	WriteResult func(summary string) error
 	OnProgress  func(Progress)
-	// DrainSteering returns a FIFO batch, reserving one of MaxSteeringRounds.
-	// A final empty drain atomically stops accepting sends before normal exit.
-	// Runners must use a final drain before completing and continue if non-empty.
-	DrainSteering func(final bool) []string
-	// AckSteering counts only messages successfully appended to the session.
-	AckSteering func(count int)
 }
 
 // Runner executes job work. Implementations must respect ctx cancellation.

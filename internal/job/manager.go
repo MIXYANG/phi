@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 )
@@ -30,13 +29,11 @@ type Manager struct {
 	maxDepth      int
 	onStoreError  func(op, jobID string, err error)
 
-	mu        sync.Mutex
-	closed    bool
-	slots     chan struct{}
-	jobs      map[string]*liveJob
-	snapshots map[string]Info // all jobs spawned in this process, including terminal jobs
-	subs      []*subscriber
-	injected  map[string]int // retained after live jobs are removed; process-local
+	mu     sync.Mutex
+	closed bool
+	slots  chan struct{}
+	jobs   map[string]*liveJob
+	subs   []*subscriber
 }
 
 type liveJob struct {
@@ -44,11 +41,6 @@ type liveJob struct {
 	parentToolUseID string
 	cancel          context.CancelFunc
 	done            chan struct{}
-	mailbox         chan string
-	steeringClosed  bool
-	steeringRounds  int
-	steeringPending int
-	runCtx          context.Context
 }
 
 // subscriber is one progress channel. closed is guarded by m.mu: emitProgress
@@ -87,8 +79,6 @@ func New(opts Options) (*Manager, error) {
 		onStoreError:  opts.OnStoreError,
 		slots:         make(chan struct{}, maxC),
 		jobs:          make(map[string]*liveJob),
-		snapshots:     make(map[string]Info),
-		injected:      make(map[string]int),
 	}
 	if opts.Recovery != RecoverIgnore {
 		if err := m.recoverStale(); err != nil {
@@ -214,14 +204,10 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 		parentToolUseID: req.ParentToolUseID,
 		cancel:          cancel,
 		done:            make(chan struct{}),
-		mailbox:         make(chan string, 8),
-		runCtx:          runCtx,
 	}
 	m.mu.Lock()
 	m.jobs[id] = lj
-	m.snapshots[id] = Info{Meta: meta}
 	m.mu.Unlock()
-	m.emitProgress(Progress{JobID: id, Status: string(meta.Status), Time: now})
 
 	go m.run(runCtx, lj)
 	return Info{Meta: meta}, nil
@@ -229,7 +215,6 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 
 func (m *Manager) run(ctx context.Context, lj *liveJob) {
 	defer close(lj.done)
-	defer lj.cancel()
 	defer func() { <-m.slots }()
 
 	meta := lj.meta
@@ -238,21 +223,9 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 	m.persistMeta(meta)
 	m.setLiveMeta(meta)
 	m.persistEvent(meta, "running")
-	m.emitProgress(Progress{JobID: meta.ID, Status: string(meta.Status), Time: meta.StartedAt})
 
 	env := RunEnv{
 		Job: meta,
-		DrainSteering: func(final bool) []string {
-			return m.drainSteering(lj, final)
-		},
-		AckSteering: func(count int) {
-			m.mu.Lock()
-			defer m.mu.Unlock()
-			if count > 0 && count <= lj.steeringPending {
-				lj.steeringPending -= count
-				m.injected[meta.ID] += count
-			}
-		},
 		Log: func(message string) {
 			m.persistEvent(meta, message)
 		},
@@ -271,25 +244,11 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 			if p.Time.IsZero() {
 				p.Time = time.Now().UTC()
 			}
-			// Accumulate usage delta when this progress carries usage info.
-			if p.Usage != nil {
-				m.mu.Lock()
-				lj.meta.Usage.InputTokens += p.Usage.InputTokens
-				lj.meta.Usage.OutputTokens += p.Usage.OutputTokens
-				lj.meta.Usage.CacheRead += p.Usage.CacheRead
-				lj.meta.Usage.CacheWrite += p.Usage.CacheWrite
-				lj.meta.Usage.CostUSD += p.Usage.CostUSD
-				m.snapshots[meta.ID] = Info{Meta: lj.meta}
-				m.mu.Unlock()
-			}
 			m.emitProgress(p)
 		},
 	}
 
 	summary, err := m.runner.Run(ctx, env)
-	m.mu.Lock()
-	lj.steeringClosed = true
-	m.mu.Unlock()
 
 	meta.FinishedAt = time.Now().UTC()
 
@@ -330,83 +289,20 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 		}
 	}
 
-	m.mu.Lock()
-	meta.Usage = lj.meta.Usage
-	m.mu.Unlock()
 	m.persistMeta(meta)
 	m.setLiveMeta(meta)
 
 	m.mu.Lock()
 	delete(m.jobs, meta.ID)
 	m.mu.Unlock()
-	m.emitProgress(Progress{JobID: meta.ID, Status: string(meta.Status), Time: meta.FinishedAt})
 }
 
 func (m *Manager) setLiveMeta(meta Meta) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if lj, ok := m.jobs[meta.ID]; ok {
-		// Status transitions carry an older copy of metadata, never newer usage.
-		meta.Usage = lj.meta.Usage
 		lj.meta = meta
 	}
-	m.snapshots[meta.ID] = Info{Meta: meta}
-}
-
-// MaxSteeringRounds bounds batches injected into one child run.
-const MaxSteeringRounds = 5
-
-// Send queues steering for a running job without blocking. Success means queued,
-// not injected: cancellation or an engine error may still prevent delivery.
-func (m *Manager) Send(jobID, msg string) error {
-	if strings.TrimSpace(msg) == "" {
-		return fmt.Errorf("%w: steering message must not be blank", ErrInvalid)
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closed {
-		return ErrClosed
-	}
-	lj, ok := m.jobs[jobID]
-	if !ok || lj.meta.Status != StatusRunning || lj.steeringClosed || lj.runCtx.Err() != nil {
-		return fmt.Errorf("%w: %s is not accepting steering", ErrNotRunning, jobID)
-	}
-	if lj.steeringRounds >= MaxSteeringRounds {
-		return ErrSteeringLimit
-	}
-	select {
-	case lj.mailbox <- msg:
-		return nil
-	default:
-		return ErrMailboxFull
-	}
-}
-
-func (m *Manager) drainSteering(lj *liveJob, final bool) []string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if lj.steeringClosed || lj.runCtx.Err() != nil || lj.steeringRounds >= MaxSteeringRounds {
-		return nil
-	}
-	var messages []string
-	for len(lj.mailbox) > 0 {
-		messages = append(messages, <-lj.mailbox)
-	}
-	if len(messages) > 0 {
-		lj.steeringRounds++
-		lj.steeringPending += len(messages)
-	} else if final {
-		lj.steeringClosed = true
-	}
-	return messages
-}
-
-// InjectedMessages returns acknowledged steering messages, including completed
-// jobs. Counts are process-local; unknown jobs and jobs from prior runs return 0.
-func (m *Manager) InjectedMessages(jobID string) int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.injected[jobID]
 }
 
 // Get returns one job by id.
@@ -614,32 +510,4 @@ func (m *Manager) LiveCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.jobs)
-}
-
-// Snapshot returns in-memory snapshots of jobs spawned in this process, ordered
-// by creation time then ID. An empty parentID includes all parents.
-func (m *Manager) Snapshot(parentID string) []Info {
-	m.mu.Lock()
-	infos := make([]Info, 0, len(m.snapshots))
-	for _, info := range m.snapshots {
-		if parentID == "" || info.ParentID == parentID {
-			infos = append(infos, info)
-		}
-	}
-	m.mu.Unlock()
-	slices.SortFunc(infos, func(a, b Info) int {
-		if order := a.CreatedAt.Compare(b.CreatedAt); order != 0 {
-			return order
-		}
-		return strings.Compare(a.ID, b.ID)
-	})
-	return infos
-}
-
-// Usage returns authoritative accumulated usage for a job spawned in this process,
-// including completed jobs. Unknown jobs return zero usage.
-func (m *Manager) Usage(jobID string) UsageDelta {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.snapshots[jobID].Usage
 }

@@ -299,9 +299,7 @@ func TestSubscribeProgress(t *testing.T) {
 		select {
 		case p, ok := <-ch:
 			require.True(t, ok)
-			if p.ToolUseID != "" {
-				got = append(got, p)
-			}
+			got = append(got, p)
 		case <-deadline:
 			require.Failf(t, "timeout", "got %d events", len(got))
 		}

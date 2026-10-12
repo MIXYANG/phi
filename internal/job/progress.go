@@ -8,17 +8,7 @@ type Progress struct {
 	ParentToolUseID string // parent agent tool_use id when known
 	ToolUseID       string
 	Name            string
-	Status          string // tool status, or job lifecycle status when ToolUseID and Name are empty
+	Status          string // session.ToolStatus.String(); decode with session.ParseToolStatus
 	Detail          string
 	Time            time.Time
-	Usage           *UsageDelta // non-nil when this event carries token usage
-}
-
-// UsageDelta is a token-usage increment for one completion round.
-type UsageDelta struct {
-	InputTokens  int
-	OutputTokens int
-	CacheRead    int
-	CacheWrite   int
-	CostUSD      float64 // zero when pricing is unavailable
 }

@@ -423,10 +423,6 @@ func (t *TranscriptPane) applyAgentToolData(td session.ToolData) {
 	}
 	t.subagents.Bind(parsed.JobID, td.Run.ToolUseID)
 	t.subagents.ApplyResult(td.Run.ToolUseID, parsed)
-	for _, child := range parsed.Jobs {
-		t.subagents.Bind(child.JobID, td.Run.ToolUseID)
-		t.subagents.ApplyResult(td.Run.ToolUseID, child)
-	}
 }
 
 func (t *TranscriptPane) viewSel() (ax, ay, ex, ey int) {

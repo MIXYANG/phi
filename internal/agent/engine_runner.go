@@ -109,36 +109,7 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		lastText string
 		lastErr  error
 	)
-	steeringRounds := 0
-	drain := func(final bool) []string {
-		if env.DrainSteering == nil || steeringRounds >= job.MaxSteeringRounds {
-			return nil
-		}
-		messages := env.DrainSteering(final)
-		if len(messages) > 0 {
-			steeringRounds++
-		}
-		return messages
-	}
-	opts := LoopOpts{
-		OnUsage: func(usage llm.Usage) {
-			u := session.TokenUsageFrom(usage)
-			if u.Reported() && env.OnProgress != nil {
-				env.OnProgress(job.Progress{
-					Usage: &job.UsageDelta{
-						InputTokens:  u.PromptTokens,
-						OutputTokens: u.CompletionTokens,
-						CacheRead:    u.CachedTokens,
-						CacheWrite:   u.CacheWriteTokens,
-					},
-				})
-			}
-		},
-		OnRoundEnd:         func() []string { return drain(false) },
-		OnStopping:         func() []string { return drain(true) },
-		OnSteeringInjected: env.AckSteering,
-	}
-	for ev, loopErr := range engine.Loop(ctx, prompt, opts) {
+	for ev, loopErr := range engine.Loop(ctx, prompt, LoopOpts{}) {
 		if loopErr != nil {
 			lastErr = loopErr
 			env.Log("error: " + loopErr.Error())

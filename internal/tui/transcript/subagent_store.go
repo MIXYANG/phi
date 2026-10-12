@@ -1,7 +1,6 @@
 package transcript
 
 import (
-	"slices"
 	"sync"
 
 	"github.com/pulseaiclub/phi/internal/components/block"
@@ -14,7 +13,7 @@ import (
 // It is not part of the session / LLM transcript.
 type SubagentStore struct {
 	mu       sync.Mutex
-	byParent map[string][]*subagentView
+	byParent map[string]*subagentView
 	byJob    map[string]*subagentView
 }
 
@@ -29,7 +28,7 @@ type subagentView struct {
 // NewSubagentStore creates an empty store.
 func NewSubagentStore() *SubagentStore {
 	return &SubagentStore{
-		byParent: make(map[string][]*subagentView),
+		byParent: make(map[string]*subagentView),
 		byJob:    make(map[string]*subagentView),
 	}
 }
@@ -47,33 +46,35 @@ func (s *SubagentStore) Bind(jobID, parentToolUseID string) {
 }
 
 func (s *SubagentStore) viewLocked(jobID, parentToolUseID string) *subagentView {
-	v := s.byJob[jobID]
-	if jobID == "" && len(s.byParent[parentToolUseID]) == 1 {
-		v = s.byParent[parentToolUseID][0]
+	var v *subagentView
+	if parentToolUseID != "" {
+		v = s.byParent[parentToolUseID]
 	}
-	if v == nil && parentToolUseID != "" {
-		// Progress without a job ID can arrive before the result binds it.
-		for _, candidate := range s.byParent[parentToolUseID] {
-			if candidate.JobID == "" {
-				v = candidate
-				break
-			}
-		}
+	if v == nil && jobID != "" {
+		v = s.byJob[jobID]
 	}
 	if v == nil {
-		v = &subagentView{childIdx: make(map[string]int)}
-	}
-	if jobID != "" {
-		v.JobID = jobID
-		s.byJob[jobID] = v
-	}
-	if parentToolUseID != "" {
-		v.ParentToolUseID = parentToolUseID
-		// Keep spawn and wait aliases, with each job included once in binding order.
-		if slices.Contains(s.byParent[parentToolUseID], v) {
-			return v
+		v = &subagentView{
+			JobID:           jobID,
+			ParentToolUseID: parentToolUseID,
+			childIdx:        make(map[string]int),
 		}
-		s.byParent[parentToolUseID] = append(s.byParent[parentToolUseID], v)
+	} else {
+		if jobID != "" {
+			v.JobID = jobID
+		}
+		if parentToolUseID != "" {
+			v.ParentToolUseID = parentToolUseID
+		}
+		if v.childIdx == nil {
+			v.childIdx = make(map[string]int)
+		}
+	}
+	if v.ParentToolUseID != "" {
+		s.byParent[v.ParentToolUseID] = v
+	}
+	if v.JobID != "" {
+		s.byJob[v.JobID] = v
 	}
 	return v
 }
@@ -81,7 +82,7 @@ func (s *SubagentStore) viewLocked(jobID, parentToolUseID string) *subagentView 
 // ApplyProgress upserts a child tool row under the parent agent tool.
 // Returns true when the nested tree view actually changed.
 func (s *SubagentStore) ApplyProgress(p job.Progress) bool {
-	if s == nil || (p.JobID == "" && p.ParentToolUseID == "") || p.Name == "" {
+	if s == nil || (p.JobID == "" && p.ParentToolUseID == "") {
 		return false
 	}
 	s.mu.Lock()
@@ -128,11 +129,11 @@ func (s *SubagentStore) Children(parentToolUseID string) []block.ChildTool {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var children []block.ChildTool
-	for _, v := range s.byParent[parentToolUseID] {
-		children = append(children, v.Children...)
+	v := s.byParent[parentToolUseID]
+	if v == nil {
+		return nil
 	}
-	return children
+	return append([]block.ChildTool(nil), v.Children...)
 }
 
 // ChildrenByJob returns a copy of nested tools for a job id.
