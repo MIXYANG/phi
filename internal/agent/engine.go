@@ -191,7 +191,15 @@ func (engine *Engine) systemPrompt() string {
 	if engine.jobs != nil {
 		maxConcurrent = engine.jobs.MaxConcurrent()
 	}
-	return prompt.Build(engine.modelCfg.SkillPath, engine.jobs != nil, maxConcurrent, mcpServers)
+	// Build from the session cwd, not the process cwd: a sub-agent spawned with
+	// its own workdir must load that workspace's instructions.
+	return prompt.Build(
+		engine.SessionCwd(),
+		engine.modelCfg.SkillPath,
+		engine.jobs != nil,
+		maxConcurrent,
+		mcpServers,
+	)
 }
 
 func (engine *Engine) bindExecutor(registry tools.Registry) {
