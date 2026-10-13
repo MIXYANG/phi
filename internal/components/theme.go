@@ -61,7 +61,9 @@ func DarkTheme() Theme {
 		Accent:      xui.Style{Fg: xui.RGBColor(0xc4, 0x8a, 0xd9), Underline: true},
 		Warning:     xui.Style{Fg: xui.RGBColor(0xe5, 0xc0, 0x7b)},
 		Destructive: xui.Style{Fg: xui.RGBColor(0xe0, 0x6c, 0x75)},
-		Border:      xui.Style{Fg: xui.IndexedColor(240)},
+		// One gray step under the Muted(245) chrome labels it frames; 240 read
+		// as a hairline.
+		Border:      xui.Style{Fg: xui.IndexedColor(244)},
 		ToolName:    info,
 		SelectionBg: xui.Style{Bg: xui.RGBColor(0x2a, 0x3f, 0x5f)},
 		SelectionFg: xui.Style{Fg: xui.RGBColor(0xf0, 0xf3, 0xf8), Bold: true},
@@ -82,7 +84,8 @@ func DarculaTheme() Theme {
 		Accent:      xui.Style{Fg: xui.RGBColor(0x58, 0x9d, 0xf6), Underline: true},
 		Warning:     xui.Style{Fg: xui.RGBColor(0xcc, 0x78, 0x32)},
 		Destructive: xui.Style{Fg: xui.RGBColor(0xff, 0x6b, 0x68)},
-		Border:      xui.Style{Fg: xui.RGBColor(0x55, 0x55, 0x55)},
+		// Same one-step gap under Muted(0x80) as DarkTheme: 0x55 was a hairline.
+		Border:      xui.Style{Fg: xui.RGBColor(0x76, 0x76, 0x76)},
 		ToolName:    info,
 		SelectionBg: xui.Style{Bg: xui.RGBColor(0x21, 0x42, 0x83)},
 		SelectionFg: xui.Style{Fg: xui.RGBColor(0xff, 0xff, 0xff), Bold: true},
