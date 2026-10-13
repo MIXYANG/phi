@@ -3,6 +3,7 @@ package prompt
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -38,53 +39,57 @@ func loadContextFileFromDir(dir string) *ContextFile {
 //  2. then every ancestor from filesystem root down to cwd (cwd last)
 //
 // Each directory contributes at most one file. Paths are deduped.
+//
+// Slice order is the priority: the last entry is the most specific, so it wins
+// a conflict. Callers depend on that order, not on any per-file field.
 func loadProjectContextFiles(cwd, agentDir string) []ContextFile {
-	seen := make(map[string]struct{})
 	var out []ContextFile
 
-	add := func(f *ContextFile) {
-		if f == nil {
-			return
+	if cwd != "" {
+		if abs, err := filepath.Abs(cwd); err == nil {
+			cwd = abs
 		}
-		key := f.Path
-		if _, ok := seen[key]; ok {
-			return
+		var ancestors []ContextFile
+		seen := make(map[string]struct{})
+		dir := cwd
+		for {
+			if f := loadContextFileFromDir(dir); f != nil {
+				if _, ok := seen[f.Path]; !ok {
+					seen[f.Path] = struct{}{}
+					ancestors = append([]ContextFile{*f}, ancestors...)
+				}
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
 		}
-		seen[key] = struct{}{}
-		out = append(out, *f)
+		out = ancestors
 	}
 
+	// The global file ranks below everything in the cwd chain, so prepend it.
+	// When the chain already carries it (cwd inside, or equal to, ~/.phi) it is
+	// that directory's own file and keeps its more specific position.
 	if agentDir != "" {
 		if abs, err := filepath.Abs(agentDir); err == nil {
 			agentDir = abs
 		}
-		add(loadContextFileFromDir(agentDir))
+		if f := loadContextFileFromDir(agentDir); f != nil && !containsPath(out, f.Path) {
+			out = append([]ContextFile{*f}, out...)
+		}
 	}
 
-	if cwd == "" {
-		return out
-	}
-	if abs, err := filepath.Abs(cwd); err == nil {
-		cwd = abs
-	}
-
-	var ancestors []ContextFile
-	dir := cwd
-	for {
-		if f := loadContextFileFromDir(dir); f != nil {
-			if _, ok := seen[f.Path]; !ok {
-				seen[f.Path] = struct{}{}
-				ancestors = append([]ContextFile{*f}, ancestors...)
-			}
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	out = append(out, ancestors...)
 	return out
+}
+
+func containsPath(files []ContextFile, path string) bool {
+	for _, f := range files {
+		if f.Path == path {
+			return true
+		}
+	}
+	return false
 }
 
 func formatProjectContext(files []ContextFile) string {
@@ -93,10 +98,13 @@ func formatProjectContext(files []ContextFile) string {
 	}
 	var sb strings.Builder
 	sb.WriteString("<project_context>\n\n")
-	sb.WriteString("Project-specific instructions and guidelines:\n\n")
-	for _, f := range files {
+	sb.WriteString("Project-specific instructions and guidelines.\n")
+	sb.WriteString("Listed lowest to highest priority: on conflict the higher-numbered entry wins.\n\n")
+	for i, f := range files {
 		sb.WriteString("<project_instructions path=\"")
 		sb.WriteString(f.Path)
+		sb.WriteString("\" priority=\"")
+		sb.WriteString(strconv.Itoa(i + 1))
 		sb.WriteString("\">\n")
 		sb.WriteString(f.Content)
 		if !strings.HasSuffix(f.Content, "\n") {
