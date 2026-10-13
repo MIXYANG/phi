@@ -3,6 +3,7 @@ package prompt
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -29,6 +30,23 @@ func TestBuildEditHashCopyIsUnambiguous(t *testing.T) {
 	require.NotContains(t, got, "fails if it already exists")
 	require.Contains(t, got, "`write` creates or overwrites")
 	require.Contains(t, got, "Prefer cwd-relative paths")
+}
+
+// TestBuildDeclaresInstructionPriority pins PP-02: the prompt states a
+// resolution ladder, keeps the user's instruction below the permission gate,
+// and points at the numbered entries in <project_context>.
+func TestBuildDeclaresInstructionPriority(t *testing.T) {
+	got := Build("", "", false, 0, nil)
+
+	require.Contains(t, got, "Instructions can conflict. Priority, highest first:")
+	require.Contains(t, got, "outranks file preferences but not the permission gate")
+	require.Contains(t, got, "`priority` number in `<project_context>`")
+
+	gate := strings.Index(got, "permission gate and safety constraints (never overridable)")
+	user := strings.Index(got, "the user's explicit instruction for this task")
+	require.NotEqual(t, -1, gate, "ladder must name the safety floor")
+	require.NotEqual(t, -1, user, "ladder must name the user layer")
+	require.Less(t, gate, user, "the permission gate must outrank the user's instruction")
 }
 
 func TestBuildMCPCatalog(t *testing.T) {
