@@ -17,6 +17,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/extension/loader"
 	"github.com/pulseaiclub/phi/internal/job"
+	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
 )
 
@@ -45,6 +46,8 @@ func TestMaxRoundsLifecycle(t *testing.T) {
 
 			checkBudget := func(t *testing.T) {
 				t.Helper()
+				require.NoError(t, ctrl.SetThinkLevel(llm.High))
+				assert.Equal(t, llm.High, ctrl.ThinkLevel())
 				assert.Equal(t, 2, ctrl.MaxRounds(), "palette getter must retain session override")
 				assert.Equal(t, 2, ctrl.modelForRole(job.RoleExplore).MaxRounds)
 				require.NoError(t, ctrl.SetRoleModel("worker", "secondary"))

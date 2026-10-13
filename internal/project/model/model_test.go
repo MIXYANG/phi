@@ -84,16 +84,17 @@ func TestLookupUnknownFallsThrough(t *testing.T) {
 	}, p.Config)
 }
 
-func TestDeepSeekInterceptorSetsExtraBody(t *testing.T) {
+func TestDeepSeekInterceptorSetsTopLevelThinking(t *testing.T) {
 	req := &openai.Request{Model: "deepseek-flash"}
-	require.NoError(t, deepseekThinking{}.Before(t.Context(), req, llm.ModelConfig{}))
-	require.NotNil(t, req.ExtraBody)
-	require.NotNil(t, req.ExtraBody.Thinking)
-	assert.Equal(t, "enabled", req.ExtraBody.Thinking.Type)
+	require.NoError(t, chatParameters{}.Before(t.Context(), req, llm.ModelConfig{
+		Name: "deepseek-flash", Think: llm.ThinkConfig{Enabled: true, Mode: llm.High},
+	}))
+	require.NotNil(t, req.Thinking)
+	assert.Equal(t, "enabled", req.Thinking.Type)
 
 	body, err := json.Marshal(req)
 	require.NoError(t, err)
-	assert.Contains(t, string(body), `"extra_body"`)
+	assert.NotContains(t, string(body), `"extra_body"`)
 	assert.Contains(t, string(body), `"thinking"`)
 }
 
@@ -124,7 +125,7 @@ func TestGLMRetiredNamesAreNotPresets(t *testing.T) {
 // Both GLM presets are forced-thinking: thinking.type is always enabled and
 // clear_thinking is false (Preserved Thinking) so reasoning survives across
 // turns. reasoning_effort rides along as the depth of the thought chain.
-func TestGLMPresetWiresThinkingThroughExtraBody(t *testing.T) {
+func TestGLMPresetWiresThinkingForNativeEndpoint(t *testing.T) {
 	for _, name := range []string{"glm-5.3", "glm-5.3-flash"} {
 		p, ok := Lookup(name)
 		require.True(t, ok, name)
@@ -132,11 +133,10 @@ func TestGLMPresetWiresThinkingThroughExtraBody(t *testing.T) {
 
 		req := openai.BuildRequest(p.Config, "", nil, nil)
 		require.NoError(t, p.Hooks.OpenAI.Before(t.Context(), req, p.Config))
-		require.NotNil(t, req.ExtraBody, name)
-		require.NotNil(t, req.ExtraBody.Thinking, name)
-		assert.Equal(t, "enabled", req.ExtraBody.Thinking.Type, name)
-		require.NotNil(t, req.ExtraBody.Thinking.ClearThinking, name)
-		assert.False(t, *req.ExtraBody.Thinking.ClearThinking, "%s preserves reasoning", name)
+		require.NotNil(t, req.Thinking, name)
+		assert.Equal(t, "enabled", req.Thinking.Type, name)
+		require.NotNil(t, req.Thinking.ClearThinking, name)
+		assert.False(t, *req.Thinking.ClearThinking, "%s preserves reasoning", name)
 		assert.Equal(t, "max", req.ReasoningEffort, name)
 
 		body, err := json.Marshal(req)
@@ -157,9 +157,8 @@ func TestGLMThinkingCannotBeDisabled(t *testing.T) {
 
 		req := openai.BuildRequest(cfg, "", nil, nil)
 		require.NoError(t, p.Hooks.OpenAI.Before(t.Context(), req, cfg))
-		require.NotNil(t, req.ExtraBody, name)
-		require.NotNil(t, req.ExtraBody.Thinking, name)
-		assert.Equal(t, "enabled", req.ExtraBody.Thinking.Type, name)
+		require.NotNil(t, req.Thinking, name)
+		assert.Equal(t, "enabled", req.Thinking.Type, name)
 		assert.Empty(t, req.ReasoningEffort, "off drops the depth, not thinking itself")
 	}
 }

@@ -91,7 +91,7 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		WithMaxRounds(r.MaxRounds),
 		WithExtensions(extRunner),
 		WithOmitExtensionTools(true),
-		WithHooks(model.HooksFor(cfg.Name)),
+		WithHooks(model.HooksForConfig(cfg)),
 	)
 	if err != nil {
 		return "", err

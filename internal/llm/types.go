@@ -47,6 +47,11 @@ const (
 	Max     ThinkMode = "max"
 )
 
+// AllThinkModes returns a fresh list so pickers cannot mutate shared choices.
+func AllThinkModes() []ThinkMode {
+	return []ThinkMode{Off, Minimal, Low, Medium, High, XHigh, Max}
+}
+
 // ThinkConfig is the provider-agnostic reasoning level. Provider wire formats
 // (OpenAI reasoning_effort, Gemini thinkingBudget/level, …) are applied by
 // each client or model RequestInterceptor.
@@ -66,7 +71,9 @@ type RequestInterceptor[Req any] interface {
 // OpenAI-compatible endpoint or the Anthropic Messages API. It also carries
 // agent-wide settings like the skill directory path.
 type ModelConfig struct {
-	Name    string
+	Name string
+	// Preset binds an opaque routed ID to recommended model capabilities.
+	Preset  string
 	APIKey  string
 	BaseURL string
 	// SkillPath is the directory to scan for SKILL.md files.
@@ -83,6 +90,8 @@ type ModelConfig struct {
 	API          RouterType
 	// Think controls reasoning effort sent as reasoning_effort.
 	Think ThinkConfig
+	// RequestParameters overrides options after endpoint adaptation.
+	RequestParameters RequestParameters
 }
 
 // Role identifies the participant in a chat message.

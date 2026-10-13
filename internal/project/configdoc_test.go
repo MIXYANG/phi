@@ -9,6 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func parseConfigFile(path string) (*Config, error) {
+	return parseConfigFileWithEnv(path, false)
+}
+
 const configDocFixture = `models:
   - name: model-a
     api_key: key-a
@@ -70,6 +74,26 @@ func TestConfigDocRoundTripThroughLoader(t *testing.T) {
 	backup, err := os.ReadFile(path + ".bak")
 	require.NoError(t, err)
 	assert.Contains(t, string(backup), "model-b")
+}
+
+func TestInvalidRequestParametersFailConfigLoad(t *testing.T) {
+	for _, tt := range []struct{ name, api, params, want string }{
+		{"sdk wrapper", "OpenAI", "{extra_body: {thinking: {type: enabled}}}", "SDK wrapper"},
+		{"reserved", "OpenAI", "{messages: null}", "messages is managed by phi"},
+		{"protocol", "Unknown", "{thinking: null}", "unsupported API"},
+		{"preset protocol", "", "{input: null}", "input is managed by phi"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			data := "models:\n  - name: gpt-6-astra\n    api_key: fake-key\n    api: " + tt.api + "\n    request_parameters: " + tt.params + "\n"
+			require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
+			_, err := parseConfigFile(path)
+			require.ErrorContains(t, err, tt.want)
+			doc, err := ReadConfigDoc(path)
+			require.NoError(t, err)
+			require.ErrorContains(t, doc.Validate(), tt.want)
+		})
+	}
 }
 
 func TestConfigDocKeepsAbsentKeysAbsent(t *testing.T) {

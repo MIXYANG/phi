@@ -112,13 +112,16 @@ func BuildRequest(cfg llm.ModelConfig, system string, messages []llm.Message, to
 		Stream: true,
 		Store:  false,
 	}
-	if cfg.Think.Enabled {
-		req.Reasoning = &Reasoning{
-			Effort:  string(cfg.Think.Mode),
-			Summary: "auto",
-		}
-	}
+	req.ApplyThink(cfg.Think)
 	return req
+}
+
+// ApplyThink keeps streaming and compaction reasoning mappings identical.
+func (r *Request) ApplyThink(think llm.ThinkConfig) {
+	r.Reasoning = nil
+	if think.Enabled {
+		r.Reasoning = &Reasoning{Effort: string(think.Mode), Summary: "auto"}
+	}
 }
 
 func userItem(m llm.Message) InputItem {
@@ -178,10 +181,10 @@ func callID(id string) string {
 	return id
 }
 
-// NewCompactRequest builds a minimal non-streaming Responses body for Compact.
-func NewCompactRequest(model, prompt string, maxTokens int) *Request {
-	return &Request{
-		Model: model,
+// NewCompactRequest builds a summary request with the streaming reasoning settings.
+func NewCompactRequest(cfg llm.ModelConfig, prompt string, maxTokens int) *Request {
+	req := &Request{
+		Model: cfg.Name,
 		Input: []InputItem{{
 			Role: "user",
 			Content: []contentPart{{
@@ -192,4 +195,6 @@ func NewCompactRequest(model, prompt string, maxTokens int) *Request {
 		Store:           false,
 		MaxOutputTokens: maxTokens,
 	}
+	req.ApplyThink(cfg.Think)
+	return req
 }

@@ -144,7 +144,7 @@ func TestCompactRequest(t *testing.T) {
 	defer srv.Close()
 
 	cfg := llm.ModelConfig{Name: "gpt-5", BaseURL: srv.URL, APIKey: "sk"}
-	res, err := CompactRequest(t.Context(), srv.Client(), cfg, NewCompactRequest("gpt-5", "sum", 13107))
+	res, err := CompactRequest(t.Context(), srv.Client(), cfg, NewCompactRequest(cfg, "sum", 13107))
 	require.NoError(t, err)
 	assert.Equal(t, "summary", res.Text)
 	assert.False(t, res.Truncated)
@@ -161,7 +161,7 @@ func TestCompactRequestReportsIncompleteOutput(t *testing.T) {
 	defer srv.Close()
 
 	cfg := llm.ModelConfig{Name: "gpt-5", BaseURL: srv.URL, APIKey: "sk"}
-	res, err := CompactRequest(t.Context(), srv.Client(), cfg, NewCompactRequest("gpt-5", "sum", 10))
+	res, err := CompactRequest(t.Context(), srv.Client(), cfg, NewCompactRequest(cfg, "sum", 10))
 	require.NoError(t, err)
 	assert.Equal(t, "partial", res.Text)
 	assert.True(t, res.Truncated)
@@ -177,7 +177,7 @@ func TestCompactRequestIgnoresOtherIncompleteReasons(t *testing.T) {
 	defer srv.Close()
 
 	cfg := llm.ModelConfig{Name: "gpt-5", BaseURL: srv.URL, APIKey: "sk"}
-	res, err := CompactRequest(t.Context(), srv.Client(), cfg, NewCompactRequest("gpt-5", "sum", 10))
+	res, err := CompactRequest(t.Context(), srv.Client(), cfg, NewCompactRequest(cfg, "sum", 10))
 	require.NoError(t, err)
 	assert.False(t, res.Truncated)
 }

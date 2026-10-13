@@ -82,7 +82,7 @@ func runHeadless(opts runOptions) error {
 		engineOpts = append(engineOpts, agent.WithMaxRounds(opts.maxRounds))
 	}
 	primary := bs.Config.Model()
-	engineOpts = append(engineOpts, agent.WithHooks(model.HooksFor(primary.Name)))
+	engineOpts = append(engineOpts, agent.WithHooks(model.HooksForConfig(primary)))
 	if pool, err := mcp.LoadPool(bs.Proj.MCPConfigFile()); err != nil {
 		fmt.Fprintln(os.Stderr, "warning: mcp:", err)
 	} else if pool != nil {

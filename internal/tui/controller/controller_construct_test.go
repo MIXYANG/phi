@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
 )
 
@@ -44,4 +45,13 @@ func TestRedrawRelay_BindAfterBus(t *testing.T) {
 	_ = bus.Drain()
 	bus.Publish(SubmitMsg{Text: "z"})
 	assert.GreaterOrEqual(t, n, 2)
+}
+
+func TestUnsupportedThinkingChangeKeepsSessionConfig(t *testing.T) {
+	ctrl := &EngineController{modelCfg: llm.ModelConfig{
+		Name: "group/auto-glm-5-3-flash", Think: llm.ThinkConfig{Enabled: true, Mode: llm.Max},
+	}}
+	require.ErrorContains(t, ctrl.SetThinkLevel(llm.Medium), "use low, high, max")
+	assert.Equal(t, llm.Max, ctrl.ThinkLevel())
+	assert.Equal(t, []llm.ThinkMode{llm.Low, llm.High, llm.Max}, ctrl.ThinkingModes())
 }

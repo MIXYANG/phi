@@ -16,7 +16,6 @@ import (
 // labels and one line of values.
 const (
 	xSection    = 2
-	xFocus      = 2
 	xModel      = 4
 	xField      = 4
 	xModelField = 6
@@ -52,7 +51,7 @@ func (e *ConfigEditor) Draw(ctx components.DrawContext) components.Surface {
 	}
 	e.width = w
 	e.pollFetch()
-	e.rebuild()
+	// Edits and structural changes rebuild rows; repainting only changes geometry.
 
 	th := e.themeOrDefault()
 	out := components.NewSurface(w, h, e)
@@ -135,14 +134,16 @@ func (e *ConfigEditor) paintRow(s *components.Surface, y int, r row, selected bo
 		base.Dim = false
 		// Color downgrade can erase the stripe; the gutter marker and bold
 		// label keep focus visible independently of background colors.
-		if xFocus < s.Size.Width-1 {
-			s.Print(xFocus, y, chrome.FocusMarker, base, method)
+		if xSection < s.Size.Width-1 {
+			s.Print(xSection, y, chrome.FocusMarker, base, method)
 		}
 		secondary = base
 	}
 	switch r.kind {
 	case rowSection:
 		e.paintSection(s, y, r, method)
+	case rowError:
+		s.Print(xModel, y, layout.TruncateToWidth(r.note, s.Size.Width-2-xModel, method), th.Destructive, method)
 	case rowModel:
 		// A model header is a label/value row like any other: the name owns the
 		// label column and the default marker plus the preset summary share the

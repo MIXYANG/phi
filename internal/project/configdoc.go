@@ -7,12 +7,11 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/pulseaiclub/phi/internal/llm"
 )
 
-// ConfigDoc is the editable view of ~/.phi/config.yaml: the keys
-// parseConfigFile reads, with pointer fields so a key the editor never touched
-// stays absent when the file is written back. `phi config` edits this document;
-// the runtime keeps loading through parseConfigFile.
+// ConfigDoc preserves absent keys when the config editor saves ~/.phi/config.yaml.
 type ConfigDoc struct {
 	Models      []ModelDoc `yaml:"models"`
 	SkillPath   *string    `yaml:"skill_path,omitempty"`
@@ -23,7 +22,8 @@ type ConfigDoc struct {
 
 // ModelDoc is one models[] entry.
 type ModelDoc struct {
-	Name string `yaml:"name"`
+	Name   string `yaml:"name"`
+	Preset string `yaml:"preset,omitempty"`
 	// APIKey and BaseURL are omitted when empty: the loader treats an absent
 	// key exactly like an empty one, and a saved file reads cleaner without
 	// `base_url: ""` noise on every preset-backed model.
@@ -32,11 +32,12 @@ type ModelDoc struct {
 	ContextWindow *int   `yaml:"context_window,omitempty"`
 	// ImageEnabled is a pointer so json/yaml round-trips keep "key absent"
 	// distinct from an explicit false.
-	ImageEnabled *bool  `yaml:"image_enabled,omitempty"`
-	API          string `yaml:"api,omitempty"` // OpenAI | OpenAIResponses | Anthropic | Gemini
-	ThinkEnabled *bool  `yaml:"think_enabled,omitempty"`
-	ThinkLevel   string `yaml:"think_level,omitempty"`
-	Default      bool   `yaml:"default,omitempty"`
+	ImageEnabled      *bool                 `yaml:"image_enabled,omitempty"`
+	API               string                `yaml:"api,omitempty"` // OpenAI | OpenAIResponses | Anthropic | Gemini
+	ThinkEnabled      *bool                 `yaml:"think_enabled,omitempty"`
+	ThinkLevel        string                `yaml:"think_level,omitempty"`
+	Default           bool                  `yaml:"default,omitempty"`
+	RequestParameters llm.RequestParameters `yaml:"request_parameters,omitempty"`
 }
 
 // PermDoc is the permissions block.
@@ -118,6 +119,9 @@ func (d *ConfigDoc) Validate() error {
 			return fmt.Errorf("duplicate model name %q", name)
 		}
 		seen[name] = struct{}{}
+		if _, err := ResolveModelDoc(m); err != nil {
+			return fmt.Errorf("model %q: %w", name, err)
+		}
 		if m.Default {
 			defaults++
 			if strings.TrimSpace(m.APIKey) == "" {

@@ -40,24 +40,19 @@ type apiMessage struct {
 
 // Request is the OpenAI-compatible chat completions body.
 type Request struct {
-	Model           string         `json:"model"`
-	Messages        []apiMessage   `json:"messages"`
-	Tools           []apiTool      `json:"tools,omitempty"`
-	Stream          bool           `json:"stream,omitempty"`
-	StreamOptions   *streamOptions `json:"stream_options,omitempty"`
-	ExtraBody       *ExtraBody     `json:"extra_body,omitempty"`
-	ReasoningEffort string         `json:"reasoning_effort,omitempty"`
+	Model           string          `json:"model"`
+	Messages        []apiMessage    `json:"messages"`
+	Tools           []apiTool       `json:"tools,omitempty"`
+	Stream          bool            `json:"stream,omitempty"`
+	StreamOptions   *streamOptions  `json:"stream_options,omitempty"`
+	Thinking        *ThinkingConfig `json:"thinking,omitempty"`
+	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
 	// MaxTokens caps the completion length. Compaction sets it so a runaway
 	// summary cannot outgrow the context the summary is meant to free.
 	MaxTokens int `json:"max_tokens,omitempty"`
 }
 
-// ExtraBody holds vendor extensions nested under extra_body (e.g. DeepSeek).
-type ExtraBody struct {
-	Thinking *ThinkingConfig `json:"thinking,omitempty"`
-}
-
-// ThinkingConfig is a vendor thinking toggle inside ExtraBody. ClearThinking is
+// ThinkingConfig is a top-level vendor thinking toggle. ClearThinking is
 // a z.ai addition: false keeps earlier reasoning in context ("preserved
 // thinking"), which interleaved tool calling needs; nil omits the field so
 // providers that do not know it are unaffected.
@@ -153,7 +148,7 @@ func toAPIMessage(m llm.Message) apiMessage {
 
 // BuildRequest converts the normalized messages into an OpenAI-shaped request.
 // The system prompt is prepended as a system message, mirroring the previous
-// in-client behavior. Vendor-specific fields (e.g. DeepSeek extra_body) belong
+// in-client behavior. Vendor-specific fields (e.g. thinking options) belong
 // on model presets via RequestInterceptor, not here.
 func BuildRequest(cfg llm.ModelConfig, system string, messages []llm.Message, tools []llm.ToolDefinition) *Request {
 	msgs := make([]apiMessage, 0, len(messages)+1)
@@ -169,22 +164,27 @@ func BuildRequest(cfg llm.ModelConfig, system string, messages []llm.Message, to
 		apiTools[i] = apiTool{Type: "function", Function: t}
 	}
 
-	var reasoningEffort string
-	if cfg.Think.Enabled {
-		reasoningEffort = string(cfg.Think.Mode)
+	req := &Request{
+		Model:         cfg.Name,
+		Messages:      msgs,
+		Tools:         apiTools,
+		Stream:        true,
+		StreamOptions: &streamOptions{IncludeUsage: true},
 	}
+	req.ApplyThink(cfg.Think)
+	return req
+}
 
-	return &Request{
-		Model:           cfg.Name,
-		Messages:        msgs,
-		Tools:           apiTools,
-		Stream:          true,
-		StreamOptions:   &streamOptions{IncludeUsage: true},
-		ReasoningEffort: reasoningEffort,
+// ApplyThink shares reasoning settings between streaming and compaction.
+func (r *Request) ApplyThink(think llm.ThinkConfig) {
+	r.ReasoningEffort = ""
+	if think.Enabled {
+		r.ReasoningEffort = string(think.Mode)
 	}
 }
 
 func chatCompletionsURL(baseURL string) string {
+	baseURL = strings.TrimRight(baseURL, "/")
 	if strings.HasSuffix(baseURL, chatCompletionsPath) {
 		return baseURL
 	}
@@ -204,13 +204,15 @@ func newChatRequest(ctx context.Context, url, apiKey string, body []byte, stream
 	return httpReq, nil
 }
 
-// NewCompactRequest builds a minimal non-streaming chat body for Compact.
-func NewCompactRequest(model, prompt string, maxTokens int) *Request {
-	return &Request{
-		Model:     model,
+// NewCompactRequest builds a summary request with the streaming reasoning settings.
+func NewCompactRequest(cfg llm.ModelConfig, prompt string, maxTokens int) *Request {
+	req := &Request{
+		Model:     cfg.Name,
 		Messages:  []apiMessage{{Role: llm.RoleUser, Content: prompt}},
 		MaxTokens: maxTokens,
 	}
+	req.ApplyThink(cfg.Think)
+	return req
 }
 
 // CompactRequest POSTs a non-streaming chat request body and returns assistant text.
@@ -220,7 +222,7 @@ func CompactRequest(
 	cfg llm.ModelConfig,
 	req *Request,
 ) (llm.CompactResult, error) {
-	body, err := json.Marshal(req)
+	body, err := llm.MarshalRequest(req, cfg)
 	if err != nil {
 		return llm.CompactResult{}, err
 	}
@@ -266,18 +268,17 @@ func CompactRequest(
 func StreamChatCompletion(
 	ctx context.Context,
 	httpClient *http.Client,
-	baseURL string,
-	apiKey string,
+	cfg llm.ModelConfig,
 	payload any,
 ) iter.Seq2[llm.StreamEvent, error] {
 	return func(yield func(llm.StreamEvent, error) bool) {
-		body, err := json.Marshal(payload)
+		body, err := llm.MarshalRequest(payload, cfg)
 		if err != nil {
 			yield(llm.StreamEvent{}, err)
 			return
 		}
 
-		httpReq, err := newChatRequest(ctx, chatCompletionsURL(baseURL), apiKey, body, true)
+		httpReq, err := newChatRequest(ctx, chatCompletionsURL(cfg.BaseURL), cfg.APIKey, body, true)
 		if err != nil {
 			yield(llm.StreamEvent{}, err)
 			return

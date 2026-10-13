@@ -474,18 +474,28 @@ func (c *EngineController) SetModel(name string) error {
 	defer c.modelMu.Unlock()
 	// The palette budget belongs to the session, independent of the model.
 	cfg.MaxRounds = c.modelCfg.MaxRounds
-	c.engine.SetModelWithHooks(cfg, model.HooksFor(cfg.Name))
+	c.engine.SetModelWithHooks(cfg, model.HooksForConfig(cfg))
 	c.modelCfg = cfg
 	return nil
 }
 
 // SetThinkLevel changes the thinking level for the current session.
-func (c *EngineController) SetThinkLevel(mode llm.ThinkMode) {
+func (c *EngineController) SetThinkLevel(mode llm.ThinkMode) error {
 	c.modelMu.Lock()
 	defer c.modelMu.Unlock()
-	c.modelCfg.Think.Mode = mode
-	c.modelCfg.Think.Enabled = mode != llm.Off
-	c.engine.SetModel(c.modelCfg)
+	cfg := c.modelCfg
+	cfg.Think = llm.ThinkConfig{Mode: mode, Enabled: mode != llm.Off}
+	if err := model.ValidateThinking(cfg); err != nil {
+		return err
+	}
+	c.engine.SetModel(cfg)
+	c.modelCfg = cfg
+	return nil
+}
+
+// ThinkingModes returns the choices supported by the active model and endpoint.
+func (c *EngineController) ThinkingModes() []llm.ThinkMode {
+	return model.ThinkingModes(c.modelSnapshot())
 }
 
 // ThinkLevel returns the current thinking mode.
@@ -656,7 +666,7 @@ func (c *EngineController) openEngine(
 		agent.WithJobs(c.engineJobs()),
 		agent.WithExtensions(extRunner),
 		agent.WithMCP(c.mcpPool),
-		agent.WithHooks(model.HooksFor(cfg.Name)),
+		agent.WithHooks(model.HooksForConfig(cfg)),
 	)
 }
 

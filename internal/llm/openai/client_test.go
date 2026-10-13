@@ -122,9 +122,9 @@ func TestNormalizeUsageSplitsCacheBuckets(t *testing.T) {
 	}
 }
 
-func TestBuildRequestDoesNotInferDeepSeekExtraBody(t *testing.T) {
+func TestBuildRequestDoesNotInferDeepSeekThinking(t *testing.T) {
 	cfg := llm.ModelConfig{Name: "deepseek-flash", Think: llm.ThinkConfig{Enabled: true, Mode: llm.High}}
 	req := BuildRequest(cfg, "", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil)
-	assert.Nil(t, req.ExtraBody)
+	assert.Nil(t, req.Thinking)
 	assert.Equal(t, "high", req.ReasoningEffort)
 }

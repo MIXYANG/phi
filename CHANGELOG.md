@@ -10,13 +10,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Models: gateway aliases and explicit `preset` bindings.
+- Models: per-model `request_parameters` overrides for all four APIs,
+  including compaction.
+
 ### Changed
+
+- Config editor: cache resolved rows across redraws.
 
 ### Deprecated
 
 ### Removed
 
 ### Fixed
+
+- Models: prefer the actual model over routing prefixes when matching aliases.
+- Models: adapt GLM and DeepSeek thinking to API endpoints; configuration and
+  session pickers enforce supported thinking levels.
+- Config editor: show resolved defaults and model validation errors.
 
 ### Security
 

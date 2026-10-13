@@ -35,6 +35,7 @@ func NewClient(cfg llm.ModelConfig, hooks Hooks, tools []llm.ToolDefinition, sys
 }
 
 // Stream runs a streaming chat completion over messages (+ optional system prompt / tools).
+// All providers validate overrides before network I/O.
 func (c *Client) Stream(ctx context.Context, messages []llm.Message) iter.Seq2[llm.StreamEvent, error] {
 	switch c.cfg.API {
 	case llm.Anthropic:
@@ -60,7 +61,7 @@ func (c *Client) Stream(ctx context.Context, messages []llm.Message) iter.Seq2[l
 		if err := applyHook(ctx, c.hooks.OpenAI, req, c.cfg); err != nil {
 			return errorSeq(err)
 		}
-		return openai.StreamChatCompletion(ctx, c.httpClient, c.cfg.BaseURL, c.cfg.APIKey, req)
+		return openai.StreamChatCompletion(ctx, c.httpClient, c.cfg, req)
 	}
 }
 
@@ -69,7 +70,11 @@ func (c *Client) Stream(ctx context.Context, messages []llm.Message) iter.Seq2[l
 func (c *Client) Compact(ctx context.Context, req llm.CompactRequest) (llm.CompactResult, error) {
 	switch c.cfg.API {
 	case llm.Anthropic:
-		return anthropic.Compact(ctx, c.httpClient, c.cfg, req)
+		antReq := anthropic.NewCompactRequest(c.cfg.Name, req.Prompt, req.MaxTokens)
+		if err := applyHook(ctx, c.hooks.Anthropic, antReq, c.cfg); err != nil {
+			return llm.CompactResult{}, err
+		}
+		return anthropic.CompactRequest(ctx, c.httpClient, c.cfg, antReq)
 	case llm.Gemini:
 		greReq := gemini.BuildRequest("", []llm.Message{{Role: llm.RoleUser, Content: req.Prompt}}, nil)
 		greReq.SetMaxOutputTokens(req.MaxTokens)
@@ -78,13 +83,13 @@ func (c *Client) Compact(ctx context.Context, req llm.CompactRequest) (llm.Compa
 		}
 		return gemini.CompactRequest(ctx, c.httpClient, c.cfg, &greReq)
 	case llm.OpenAIResponses:
-		respReq := responses.NewCompactRequest(c.cfg.Name, req.Prompt, req.MaxTokens)
+		respReq := responses.NewCompactRequest(c.cfg, req.Prompt, req.MaxTokens)
 		if err := applyHook(ctx, c.hooks.OpenAIResponses, respReq, c.cfg); err != nil {
 			return llm.CompactResult{}, err
 		}
 		return responses.CompactRequest(ctx, c.httpClient, c.cfg, respReq)
 	default:
-		oaiReq := openai.NewCompactRequest(c.cfg.Name, req.Prompt, req.MaxTokens)
+		oaiReq := openai.NewCompactRequest(c.cfg, req.Prompt, req.MaxTokens)
 		if err := applyHook(ctx, c.hooks.OpenAI, oaiReq, c.cfg); err != nil {
 			return llm.CompactResult{}, err
 		}

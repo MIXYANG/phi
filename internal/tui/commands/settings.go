@@ -176,7 +176,10 @@ func (s *SettingsCommands) setDebug(on bool) {
 }
 
 func (s *SettingsCommands) setThinkLevel(level llm.ThinkMode) {
-	s.Ctrl.SetThinkLevel(level)
+	if err := s.Ctrl.SetThinkLevel(level); err != nil {
+		publishToast(s.Bus, err.Error(), toast.ToastError, 3*time.Second)
+		return
+	}
 	label := string(level)
 	if level == llm.Off {
 		label = "off"
@@ -196,12 +199,11 @@ func (s *SettingsCommands) setMaxRounds(n int) {
 }
 
 func buildThinkPalette(ctrl *controller.EngineController, set func(llm.ThinkMode)) palette.PaletteCommand {
-	levels := []llm.ThinkMode{
-		llm.Off, llm.Minimal, llm.Low, llm.Medium, llm.High, llm.XHigh, llm.Max,
-	}
+	levels := llm.AllThinkModes()
 	current := llm.Off
 	if ctrl != nil {
 		current = ctrl.ThinkLevel()
+		levels = ctrl.ThinkingModes()
 	}
 	cmds := make([]palette.PaletteCommand, 0, len(levels))
 	for _, lv := range levels {
