@@ -30,6 +30,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Picker filters (`/branch`, `/sessions`, diff file picker, settings lists) rank
+  by where the query hit: an exact name first, then names that start with it,
+  then names that contain it, and last the rows whose detail or commit subject
+  merely mentions it. Ties keep the caller's order — current branch, recently
+  checked out, newest session — so searching `origin/main` lands on the branch
+  named `origin/main` instead of one whose last commit says "merge
+  origin/main".
 - Sub-agents build their system prompt from their own workdir: a job spawned
   with `workdir` now loads that directory's `AGENTS.md` and reports its cwd
   instead of the spawning process's.

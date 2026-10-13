@@ -3,6 +3,7 @@
 package listpicker
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -58,7 +59,7 @@ type Picker struct {
 	FocusReturn components.Widget
 
 	cfg        ShowConfig
-	filtered   []int
+	filtered   []hit
 	scroll     int
 	confirming bool
 }
@@ -147,13 +148,57 @@ func (p *Picker) returnFocus(ctx *components.EventContext) {
 	}
 }
 
+// hit is one row that passed the filter, carrying how well it answered the
+// query so the best answers sort to the top.
+type hit struct {
+	index int
+	tier  matchTier
+}
+
+// matchTier grades a hit by where the query landed. Name fields outrank free
+// text: typing a branch name must not sink below a commit subject that happens
+// to spell the same thing.
+type matchTier int
+
+const (
+	tierNone     matchTier = iota // no hit at all
+	tierText                      // only Detail / Keywords / Badge matched
+	tierContains                  // Primary or ID contains the query
+	tierPrefix                    // Primary or ID starts with it
+	tierExact                     // Primary or ID is exactly the query
+)
+
+func matchTierOf(item Item, q string) matchTier {
+	primary, id := strings.ToLower(item.Primary), strings.ToLower(item.ID)
+	switch {
+	case primary == q || id == q:
+		return tierExact
+	case strings.HasPrefix(primary, q) || strings.HasPrefix(id, q):
+		return tierPrefix
+	case strings.Contains(primary, q) || strings.Contains(id, q):
+		return tierContains
+	case itemMatches(item, q):
+		return tierText
+	}
+	return tierNone
+}
+
 func (p *Picker) refilter() {
 	p.filtered = p.filtered[:0]
 	q := strings.ToLower(strings.TrimSpace(p.Query))
 	for i, item := range p.Items {
-		if q == "" || itemMatches(item, q) {
-			p.filtered = append(p.filtered, i)
+		tier := tierText // no query: every row stays, in the caller's order
+		if q != "" {
+			tier = matchTierOf(item, q)
 		}
+		if tier > tierNone {
+			p.filtered = append(p.filtered, hit{index: i, tier: tier})
+		}
+	}
+	if q != "" {
+		// Best answer under the cursor. Stable, so equally good hits keep the
+		// caller's ranking (current branch, recently checked out, newest).
+		slices.SortStableFunc(p.filtered, func(a, b hit) int { return int(b.tier) - int(a.tier) })
 	}
 	if p.Selected >= len(p.filtered) {
 		p.Selected = len(p.filtered) - 1
@@ -175,7 +220,7 @@ func (p *Picker) selectPreferred() {
 		return
 	}
 	for i, fi := range p.filtered {
-		if p.Items[fi].Badge != "" {
+		if p.Items[fi.index].Badge != "" {
 			p.Selected = i
 			return
 		}
@@ -186,7 +231,7 @@ func (p *Picker) selectedItem() (Item, bool) {
 	if p.Selected < 0 || p.Selected >= len(p.filtered) {
 		return Item{}, false
 	}
-	idx := p.filtered[p.Selected]
+	idx := p.filtered[p.Selected].index
 	if idx < 0 || idx >= len(p.Items) {
 		return Item{}, false
 	}
@@ -523,7 +568,7 @@ func (p *Picker) drawRow(
 	th components.Theme,
 	boxW, y, ri int,
 ) {
-	item := p.Items[p.filtered[ri]]
+	item := p.Items[p.filtered[ri].index]
 	sel := ri == p.Selected
 	base := th.Foreground
 	muted := th.Muted

@@ -3,8 +3,10 @@ package branchlist
 import (
 	"testing"
 
+	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/listpicker"
 	"github.com/pulseaiclub/phi/internal/util/gitx"
 )
@@ -89,6 +91,32 @@ func TestRemoteRowAcceptsTheTrackingBranch(t *testing.T) {
 
 	assert.Equal(t, "fix/one", item.ID)
 	assert.Equal(t, "origin/fix/one", item.Primary, "the row still says where it lives")
+}
+
+// The row carries the commit subject as a keyword, so a local branch whose last
+// commit mentions origin/main used to sit above the branch named origin/main.
+// Enter after typing the query is the regression: acceptance must land on the
+// branch whose name is the query.
+func TestFilterPutsTheBranchNamedOriginMainFirst(t *testing.T) {
+	items := Items([]gitx.Branch{
+		{Name: "main", Current: true, Subject: "merge origin/main into main"},
+		{Name: "fix/guard", Subject: "wip"},
+		{Name: "origin/main", Remote: true, Subject: "chore: bump"},
+	}, nil)
+
+	var got listpicker.Item
+	p := &listpicker.Picker{
+		Theme:    components.DefaultTheme(),
+		OnAccept: func(item listpicker.Item) { got = item },
+	}
+	p.Show(items, Config())
+	ctx := &components.EventContext{}
+	for _, r := range "origin/main" {
+		p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
+	}
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+
+	assert.Equal(t, "origin/main", got.Primary)
 }
 
 func TestConfigKeepsBranchNamesReadable(t *testing.T) {
