@@ -31,11 +31,77 @@ func TestPickerFilterAndAccept(t *testing.T) {
 		p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
 	}
 	require.Len(t, p.filtered, 1)
-	assert.Equal(t, "aaaaaaaa-1111", p.Items[p.filtered[0]].ID)
+	assert.Equal(t, "aaaaaaaa-1111", p.Items[p.filtered[0].index].ID)
 
 	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
 	assert.Equal(t, "aaaaaaaa-1111", got)
 	assert.False(t, p.Open)
+}
+
+// The filter ranks by where the query landed: an exact name wins, then a name
+// that starts with it, then a name that contains it, and only then a row that
+// merely mentions it in the detail. Caller order decides inside a tier.
+func TestPickerRanksFilterHits(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+		items []Item
+		want  []string
+	}{
+		{
+			name:  "branch name beats commit subject",
+			query: "origin/main",
+			items: []Item{
+				{ID: "merge", Primary: "fix/merge-guard", Detail: "merge origin/main into guard"},
+				{ID: "maintenance", Primary: "origin/maintenance", Detail: "wip"},
+				{ID: "main", Primary: "origin/main", Detail: "chore: bump"},
+				{ID: "dev", Primary: "origin/develop"},
+			},
+			want: []string{"origin/main", "origin/maintenance", "fix/merge-guard"},
+		},
+		{
+			name:  "prefix beats contains",
+			query: "origin/m",
+			items: []Item{
+				{ID: "feat", Primary: "feature/origin/m"},
+				{ID: "main", Primary: "origin/main"},
+			},
+			want: []string{"origin/main", "feature/origin/m"},
+		},
+		{
+			name:  "equal tiers keep caller order",
+			query: "wip",
+			items: []Item{
+				{ID: "a", Primary: "a", Detail: "wip one"},
+				{ID: "b", Primary: "b", Detail: "wip two"},
+			},
+			want: []string{"a", "b"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &Picker{Theme: components.DefaultTheme()}
+			p.Show(tc.items, ShowConfig{})
+			ctx := &components.EventContext{}
+			for _, r := range tc.query {
+				p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
+			}
+			require.Equal(t, tc.query, p.Query)
+
+			assert.Equal(t, tc.want, p.primaryOrder())
+			assert.Equal(t, 0, p.Selected, "the best match sits under the cursor")
+		})
+	}
+}
+
+// primaryOrder is the visible order of the rows the filter kept.
+func (p *Picker) primaryOrder() []string {
+	out := make([]string, 0, len(p.filtered))
+	for _, h := range p.filtered {
+		out = append(out, p.Items[h.index].Primary)
+	}
+	return out
 }
 
 func TestPickerTabAccepts(t *testing.T) {
