@@ -124,14 +124,16 @@ Concurrency cap: at most %d sub-agents run concurrently; spawning more fails (jo
 			if err != nil {
 				return tooldef.Result{}, err
 			}
+			label := spawnDetail(in)
 			body := mustJSON(map[string]any{
 				"job_id":      info.ID,
 				"status":      info.Status,
 				"role":        info.Role,
+				"label":       label,
 				"dir":         info.Dir,
 				"result_path": info.ResultPath,
 			})
-			return tooldef.Result{Content: body, Detail: roleDetail(string(info.Role), info.ID), Output: body}, nil
+			return tooldef.Result{Content: body, Detail: label, Output: body}, nil
 		}),
 	)
 }
@@ -144,12 +146,23 @@ type spawnInput struct {
 	TimeoutSec  int    `json:"timeout_sec"`
 }
 
+// spawnDetail is the one-line TUI label of a spawn row. The finished row keeps
+// this same label, so the title never flips to a raw job id mid-run.
 func spawnDetail(in spawnInput) string {
-	label := strings.TrimSpace(in.Description)
-	if label == "" {
-		label = truncateRunes(in.Prompt, 80)
+	return roleDetail(in.Role, jobLabel(in.Description, in.Prompt))
+}
+
+// jobLabel names a job for humans: the caller's description, else the head of
+// the prompt. Whitespace collapses so the label stays on one TUI row.
+func jobLabel(description, prompt string) string {
+	if d := oneLine(description); d != "" {
+		return d
 	}
-	return roleDetail(in.Role, label)
+	return truncateRunes(oneLine(prompt), 80)
+}
+
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // jobIDInput is the shared {job_id} payload of agent_wait and agent_cancel.
@@ -161,14 +174,15 @@ func jobIDDetail(in jobIDInput) string {
 	return in.JobID
 }
 
-// roleDetail is the one-line TUI suffix: "explore · find auth".
+// roleDetail is the one-line TUI label: "explore: find auth". The role reads as
+// a prefix, so the row needs no separate tool name.
 func roleDetail(role, rest string) string {
 	r := string(job.NormalizeRole(role))
 	rest = strings.TrimSpace(rest)
 	if rest == "" {
 		return r
 	}
-	return r + " · " + rest
+	return r + ": " + rest
 }
 
 func agentWaitTool(deps AgentDeps) tooldef.Tool {
@@ -201,17 +215,19 @@ Use agent_cancel to stop a running job.`,
 				return tooldef.Result{}, err
 			}
 			summary := truncateBytes(res.Summary, agentSummaryLimit)
+			label := roleDetail(string(res.Info.Role), jobLabel(res.Info.Description, res.Info.Prompt))
 			body := mustJSON(map[string]any{
 				"job_id":      res.Info.ID,
 				"status":      res.Info.Status,
 				"role":        res.Info.Role,
+				"label":       label,
 				"error":       res.Info.Error,
 				"result_path": res.Info.ResultPath,
 				"summary":     summary,
 			})
 			return tooldef.Result{
 				Content: body,
-				Detail:  roleDetail(string(res.Info.Role), string(res.Info.Status)),
+				Detail:  label,
 				Output:  body,
 			}, nil
 		}),
@@ -239,7 +255,7 @@ func agentCancelTool(deps AgentDeps) tooldef.Tool {
 				return tooldef.Result{}, err
 			}
 			body := mustJSON(map[string]any{"ok": true})
-			return tooldef.Result{Content: body, Detail: "cancelled", Output: body}, nil
+			return tooldef.Result{Content: body, Detail: "stopped", Output: body}, nil
 		}),
 	)
 }

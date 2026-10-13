@@ -79,6 +79,7 @@ func NewTranscriptPane(theme components.Theme, spin *status.Spinner, brand strin
 	})
 	t.mapper.Children = t.subagents.Children
 	t.mapper.ChildrenByJob = t.subagents.ChildrenByJob
+	t.mapper.LabelByJob = t.subagents.Label
 	return t
 }
 
@@ -223,6 +224,7 @@ func (t *TranscriptPane) ResetSubagents() {
 	if t.mapper != nil {
 		t.mapper.Children = t.subagents.Children
 		t.mapper.ChildrenByJob = t.subagents.ChildrenByJob
+		t.mapper.LabelByJob = t.subagents.Label
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 type AgentResult struct {
 	JobID   string
 	Status  string
+	Label   string // human label ("explore: find auth"), never a job id
 	Summary string
 	Error   string
 	OK      bool // true when output looked like agent tool JSON
@@ -26,6 +27,7 @@ func ParseAgentResult(output string) AgentResult {
 	var raw struct {
 		JobID   string `json:"job_id"`
 		Status  string `json:"status"`
+		Label   string `json:"label"`
 		Summary string `json:"summary"`
 		Error   string `json:"error"`
 	}
@@ -38,6 +40,7 @@ func ParseAgentResult(output string) AgentResult {
 	return AgentResult{
 		JobID:   raw.JobID,
 		Status:  raw.Status,
+		Label:   raw.Label,
 		Summary: raw.Summary,
 		Error:   raw.Error,
 		OK:      true,

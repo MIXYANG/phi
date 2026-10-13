@@ -40,14 +40,19 @@ type mcpData struct {
 	Servers []string
 }
 
-// Build assembles the system prompt.
+// Build assembles the system prompt for a session rooted at cwd: its working
+// directory, the AGENTS.md chain above it, the skills catalog, and the MCP list.
+// Passing the session cwd (not the process cwd) keeps sub-agents with their own
+// workdir from reading the parent's project instructions.
+// Empty cwd falls back to the process working directory.
 // agentsEnabled must match whether agent_* tools are registered.
 // mcpServers are configured server names only (no tool schemas).
-func Build(skillPath string, agentsEnabled bool, maxConcurrent int, mcpServers []string) string {
+func Build(cwd, skillPath string, agentsEnabled bool, maxConcurrent int, mcpServers []string) string {
+	cwd = resolveDir(cwd)
 	var buf strings.Builder
 	data := systemData{
-		Cwd:           currentDir(),
-		Workspace:     workspaceDir(),
+		Cwd:           cwd,
+		Workspace:     workspaceDir(cwd),
 		AgentsEnabled: agentsEnabled,
 		MaxConcurrent: maxConcurrent,
 	}
@@ -55,7 +60,7 @@ func Build(skillPath string, agentsEnabled bool, maxConcurrent int, mcpServers [
 		panic(fmt.Sprintf("system prompt: %v", err))
 	}
 	parts := []string{buf.String()}
-	if ctx := formatProjectContext(loadProjectContextFiles(currentDir(), phiAgentDir())); ctx != "" {
+	if ctx := formatProjectContext(loadProjectContextFiles(cwd, phiAgentDir())); ctx != "" {
 		parts = append(parts, ctx)
 	}
 	if skillBlock := skillsBlock(skillPath); skillBlock != "" {
@@ -104,18 +109,24 @@ func mcpBlock(serverNames []string) string {
 	return execTmpl(mcpPrompt, mcpData{Servers: servers})
 }
 
-func currentDir() string {
-	path, err := os.Getwd()
-	if err != nil {
-		panic(err)
+// resolveDir returns the absolute form of dir, falling back to the process
+// working directory when dir is empty or when Abs fails. A prompt with a
+// degraded cwd beats aborting the whole session.
+func resolveDir(dir string) string {
+	if dir == "" {
+		if wd, err := os.Getwd(); err == nil {
+			dir = wd
+		}
 	}
-	return path
+	if abs, err := filepath.Abs(dir); err == nil {
+		return abs
+	}
+	return dir
 }
 
-// workspaceDir returns the nearest ancestor of cwd that contains .git, or "".
-func workspaceDir() string {
-	dir, err := os.Getwd()
-	if err != nil {
+// workspaceDir returns the nearest ancestor of dir that contains .git, or "".
+func workspaceDir(dir string) string {
+	if dir == "" {
 		return ""
 	}
 	for {
@@ -124,9 +135,8 @@ func workspaceDir() string {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			break
+			return ""
 		}
 		dir = parent
 	}
-	return ""
 }
