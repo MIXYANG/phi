@@ -12,6 +12,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Box edges read as solid lines instead of hairlines: `Border` is now one gray
+  step brighter (`IndexedColor(240)` → `244` in Dark, `#555555` → `#767676` in
+  Darcula) for the chat composer, pickers, and panel frames, while staying a
+  step under the muted labels those frames embed.
 - Conflicting project instructions now resolve by a stated priority ladder
   instead of load order. The system prompt ranks the permission gate and safety
   constraints above the user's instruction for the task, which outranks the
