@@ -1,5 +1,7 @@
 // Package listpicker provides a centered, opaque, filterable list overlay.
-// Domain packages map their rows into Item; the picker stays UI-only.
+// Domain packages map their rows into Item; the picker stays UI-only. The one
+// filter line serves both halves: plain text searches Items, `!name` searches
+// the caller's Commands.
 package listpicker
 
 import (
@@ -26,6 +28,27 @@ type Item struct {
 	Keywords string // extra filter haystack (full id, aliases, …)
 }
 
+// CommandPrefix opens the command line: a filter query that starts with it is
+// matched against Commands instead of Items.
+const CommandPrefix = "!"
+
+// Command is one `!name` action reachable from the filter line. Domains keep
+// their own vocabulary; the picker only offers, filters, and dispatches these.
+// Commands are standalone by design — an operand travels on the line itself
+// (`!checkout feature/x`), so they never need the highlighted row.
+type Command struct {
+	Name     string // typed after CommandPrefix ("fetch")
+	Detail   string // one-line description beside the name
+	Keywords string // extra filter haystack (aliases)
+	// Run executes with the operand typed after the name, trimmed: `!fetch
+	// origin` runs with "origin". The picker is still open here, so Run may
+	// SetItems or Hide. Nil swaps the row list without dispatching anything.
+	Run func(args string)
+	// KeepOpen clears the line and returns to the rows instead of closing once
+	// Run returns — for commands that refresh the list and stay put.
+	KeepOpen bool
+}
+
 // ShowConfig customizes chrome copy for one opening.
 type ShowConfig struct {
 	Title          string // default "Select"
@@ -35,6 +58,9 @@ type ShowConfig struct {
 	Hint           string // bottom border caption
 	ConfirmMessage string // replaces the filter prompt while confirming a delete
 	ConfirmHint    string // bottom border caption while confirming; default " y/enter delete · n/esc cancel "
+	CommandTitle   string // title while the filter line holds a command; default "Commands"
+	CommandHint    string // bottom caption in command mode; default chrome.ListHintExtra("run")
+	EmptyCommand   string // no command matches; may contain %q for the typed name
 	LeadingWidth   int    // fixed leading column; 0 = auto from content / 10
 	PrimaryWidth   int    // fixed primary column; 0 = 8
 }
@@ -43,6 +69,11 @@ type ShowConfig struct {
 // Ctrl+X arms deletion of the selected row; Y/Enter fires OnDelete, N/Esc
 // disarms. The overlay stays open after a delete so callers can remove
 // several rows without reopening.
+//
+// With Commands set, a Query that opens with CommandPrefix searches those
+// commands instead of Items, and Enter runs the highlighted one. `!` stays an
+// ordinary filter rune while Commands is empty, so opting in is the caller's
+// call.
 type Picker struct {
 	Open     bool
 	Query    string
@@ -52,16 +83,22 @@ type Picker struct {
 	Theme    components.Theme
 	MaxItems int
 	Width    int
+	// Commands are the `!name` actions offered on the filter line. Set them
+	// before the user types; the rows are rebuilt on every filter change.
+	Commands []Command
 
 	OnAccept    func(Item)
 	OnDelete    func(Item)
 	OnClose     func()
 	FocusReturn components.Widget
 
-	cfg        ShowConfig
-	filtered   []hit
-	scroll     int
-	confirming bool
+	cfg         ShowConfig
+	filtered    []hit
+	cmdItems    []Item
+	scroll      int
+	confirming  bool
+	commandMode bool // Query opens with CommandPrefix and Commands is non-empty
+	hintSet     bool // caller supplied ShowConfig.Hint; keep the command advert out
 }
 
 func (p *Picker) theme() components.Theme {
@@ -83,6 +120,7 @@ func (p *Picker) Show(items []Item, cfg ShowConfig) {
 	p.Open = true
 	p.Items = append([]Item(nil), items...)
 	p.cfg = normalizeConfig(cfg)
+	p.hintSet = cfg.Hint != ""
 	p.Query = ""
 	p.Cursor = 0
 	p.Selected = 0
@@ -113,6 +151,15 @@ func normalizeConfig(cfg ShowConfig) ShowConfig {
 	if cfg.ConfirmHint == "" {
 		cfg.ConfirmHint = " y/enter delete" + chrome.Sep + "n/esc cancel "
 	}
+	if cfg.CommandTitle == "" {
+		cfg.CommandTitle = "Commands"
+	}
+	if cfg.CommandHint == "" {
+		cfg.CommandHint = chrome.ListHintExtra("run")
+	}
+	if cfg.EmptyCommand == "" {
+		cfg.EmptyCommand = "No command matches %q"
+	}
 	if cfg.LeadingWidth <= 0 {
 		cfg.LeadingWidth = 10
 	}
@@ -128,6 +175,7 @@ func (p *Picker) Hide() {
 	p.Query = ""
 	p.Cursor = 0
 	p.filtered = nil
+	p.commandMode = false
 	p.confirming = false
 	if p.OnClose != nil {
 		p.OnClose()
@@ -184,9 +232,19 @@ func matchTierOf(item Item, q string) matchTier {
 }
 
 func (p *Picker) refilter() {
-	p.filtered = p.filtered[:0]
+	name, _, commands := p.commandQuery()
+	p.commandMode = commands
+	if commands {
+		p.cmdItems = p.commandRows()
+	}
 	q := strings.ToLower(strings.TrimSpace(p.Query))
-	for i, item := range p.Items {
+	if commands {
+		// Anything after the name is an operand, not a filter: `!fetch origin`
+		// must keep offering fetch.
+		q = strings.ToLower(name)
+	}
+	p.filtered = p.filtered[:0]
+	for i, item := range p.rows() {
 		tier := tierText // no query: every row stays, in the caller's order
 		if q != "" {
 			tier = matchTierOf(item, q)
@@ -215,12 +273,85 @@ func itemMatches(item Item, q string) bool {
 	return strings.Contains(hay, q)
 }
 
+// commandWidth sizes the primary column for the offered commands: the name is
+// what the user types and what Run receives, so cutting it at the item width
+// would misreport what Enter does.
+func (p *Picker) commandWidth(method xui.WidthMethod) int {
+	w := 0
+	for _, c := range p.Commands {
+		w = max(w, xui.StringWidth(CommandPrefix+strings.TrimSpace(c.Name), method))
+	}
+	return w
+}
+
+// rows is what the filter line is searching right now: the caller's Items, or
+// the command rows while the line holds CommandPrefix.
+func (p *Picker) rows() []Item {
+	if p.commandMode {
+		return p.cmdItems
+	}
+	return p.Items
+}
+
+// commandRows maps Commands onto rows so commands reuse the picker's filter,
+// ranking, selection, and drawing untouched. Rebuilt per filter change: a
+// handful of rows, and a cache would only add invalidation to get wrong.
+func (p *Picker) commandRows() []Item {
+	if len(p.Commands) == 0 {
+		return nil
+	}
+	rows := make([]Item, 0, len(p.Commands))
+	for _, c := range p.Commands {
+		name := strings.TrimSpace(c.Name)
+		if name == "" {
+			continue
+		}
+		rows = append(rows, Item{
+			ID:       name,
+			Primary:  CommandPrefix + name,
+			Detail:   c.Detail,
+			Keywords: name + " " + c.Keywords,
+		})
+	}
+	return rows
+}
+
+// commandQuery splits the line into the command name to match and the operand
+// after it. ok is false for ordinary filtering: no Commands configured, or a
+// line that does not open with CommandPrefix.
+func (p *Picker) commandQuery() (name, args string, ok bool) {
+	if len(p.Commands) == 0 || !strings.HasPrefix(p.Query, CommandPrefix) {
+		return "", "", false
+	}
+	name, args, _ = strings.Cut(p.Query[len(CommandPrefix):], " ")
+	return name, strings.TrimSpace(args), true
+}
+
+func (p *Picker) commandByName(name string) (Command, bool) {
+	for _, c := range p.Commands {
+		if strings.EqualFold(strings.TrimSpace(c.Name), name) {
+			return c, true
+		}
+	}
+	return Command{}, false
+}
+
+// clearQuery empties the filter line and hands the rows back to the caller.
+func (p *Picker) clearQuery() {
+	p.Query = ""
+	p.Cursor = 0
+	p.Selected = 0
+	p.scroll = 0
+	p.refilter()
+}
+
 func (p *Picker) selectPreferred() {
 	if strings.TrimSpace(p.Query) != "" {
 		return
 	}
+	rows := p.rows()
 	for i, fi := range p.filtered {
-		if p.Items[fi.index].Badge != "" {
+		if rows[fi.index].Badge != "" {
 			p.Selected = i
 			return
 		}
@@ -231,11 +362,12 @@ func (p *Picker) selectedItem() (Item, bool) {
 	if p.Selected < 0 || p.Selected >= len(p.filtered) {
 		return Item{}, false
 	}
+	rows := p.rows()
 	idx := p.filtered[p.Selected].index
-	if idx < 0 || idx >= len(p.Items) {
+	if idx < 0 || idx >= len(rows) {
 		return Item{}, false
 	}
-	return p.Items[idx], true
+	return rows[idx], true
 }
 
 func (p *Picker) accept() {
@@ -243,8 +375,32 @@ func (p *Picker) accept() {
 	if !ok {
 		return
 	}
+	if p.commandMode {
+		if cmd, found := p.commandByName(item.ID); found {
+			p.runCommand(cmd)
+		}
+		return
+	}
 	if p.OnAccept != nil {
 		p.OnAccept(item)
+	}
+	p.Hide()
+}
+
+// runCommand dispatches the highlighted command with the operand typed after
+// its name. Run still sees an open picker so it can refresh the rows; unless it
+// closes the picker or asks to keep it, the overlay closes like an accept.
+func (p *Picker) runCommand(cmd Command) {
+	_, args, _ := p.commandQuery()
+	if cmd.Run != nil {
+		cmd.Run(args)
+	}
+	if !p.Open {
+		return
+	}
+	if cmd.KeepOpen {
+		p.clearQuery()
+		return
 	}
 	p.Hide()
 }
@@ -289,7 +445,9 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 		p.Hide()
 		p.returnFocus(ctx)
 		ctx.ConsumeAndRedraw()
-	case xui.KeyEnter:
+	case xui.KeyEnter, xui.KeyTab:
+		// Tab picks the highlighted row, like Enter. There is no composer text to
+		// complete here, and Up / Down / Ctrl+P / Ctrl+N already navigate.
 		p.accept()
 		p.returnFocus(ctx)
 		ctx.ConsumeAndRedraw()
@@ -302,12 +460,6 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 		if p.Selected < len(p.filtered)-1 {
 			p.Selected++
 		}
-		ctx.ConsumeAndRedraw()
-	case xui.KeyTab:
-		// Tab picks the highlighted row, like Enter. There is no composer text to
-		// complete here, and Up / Down / Ctrl+P / Ctrl+N already navigate.
-		p.accept()
-		p.returnFocus(ctx)
 		ctx.ConsumeAndRedraw()
 	case xui.KeyBackspace:
 		if p.Cursor > 0 {
@@ -351,8 +503,9 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 				ctx.ConsumeAndRedraw()
 			case 'x', 'X':
 				// Arm delete-confirm only for callers that own a delete path;
-				// other picker domains (branches, …) keep Ctrl+X inert.
-				if p.OnDelete != nil {
+				// other picker domains (branches, …) keep Ctrl+X inert. Never
+				// while the line holds a command: the selected row is not theirs.
+				if p.OnDelete != nil && !p.commandMode {
 					p.confirming = true
 					ctx.ConsumeAndRedraw()
 				}
@@ -430,10 +583,15 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 	}
 	layout.DrawRoundedBorder(&panel, layout.BorderRounded, borderSt, nil, nil, nil, nil, ctx.Method)
 
-	title := " " + p.cfg.Title + " · " + strconv.Itoa(len(p.Items)) + " "
-	if n := len(p.filtered); n != len(p.Items) {
-		title = " " + p.cfg.Title + " · " + strconv.Itoa(n) + "/" + strconv.Itoa(len(p.Items)) + " "
+	label, total := p.cfg.Title, len(p.rows())
+	if p.commandMode {
+		label = p.cfg.CommandTitle
 	}
+	count := strconv.Itoa(total)
+	if n := len(p.filtered); n != total {
+		count = strconv.Itoa(n) + "/" + strconv.Itoa(total)
+	}
+	title := " " + label + " · " + count + " "
 	tw := xui.StringWidth(title, ctx.Method)
 	tx := max((boxW-tw)/2, 1)
 	panel.Print(tx, 0, title, titleSt, ctx.Method)
@@ -548,7 +706,11 @@ func (p *Picker) drawRows(
 	if len(p.filtered) == 0 {
 		msg := p.cfg.Empty
 		if q := strings.TrimSpace(p.Query); q != "" {
-			msg = strings.ReplaceAll(p.cfg.EmptyFilter, "%q", strconv.Quote(q))
+			pattern := p.cfg.EmptyFilter
+			if p.commandMode {
+				pattern = p.cfg.EmptyCommand
+			}
+			msg = strings.ReplaceAll(pattern, "%q", strconv.Quote(q))
 		}
 		panel.Print(2, listY, layout.TruncateToWidth(msg, boxW-3, ctx.Method), th.Muted, ctx.Method)
 		return
@@ -568,7 +730,7 @@ func (p *Picker) drawRow(
 	th components.Theme,
 	boxW, y, ri int,
 ) {
-	item := p.Items[p.filtered[ri].index]
+	item := p.rows()[p.filtered[ri].index]
 	sel := ri == p.Selected
 	base := th.Foreground
 	muted := th.Muted
@@ -583,14 +745,21 @@ func (p *Picker) drawRow(
 		muted = fg
 	}
 
+	leadW, primW := p.cfg.LeadingWidth, p.cfg.PrimaryWidth
+	if p.commandMode {
+		// Commands carry no leading column; skipping its width keeps every name
+		// lined up with the prompt instead of under a blank gutter. The primary
+		// column widens to the names (see commandWidth) so none is cut short.
+		leadW = 0
+		primW = p.commandWidth(ctx.Method)
+	}
+
 	x := 2
-	leadW := p.cfg.LeadingWidth
 	if item.Leading != "" {
 		panel.Print(x, y, layout.TruncateToWidth(item.Leading, leadW, ctx.Method), muted, ctx.Method)
 	}
 	x += leadW
 
-	primW := p.cfg.PrimaryWidth
 	idSt := base
 	idSt.Bold = true
 	panel.Print(x, y, layout.TruncateToWidth(item.Primary, primW, ctx.Method), idSt, ctx.Method)
@@ -620,11 +789,19 @@ func (p *Picker) drawHint(
 	th components.Theme,
 	boxW, boxH int,
 ) {
-	hint := p.cfg.Hint
-	if p.confirming {
+	hint, short := p.cfg.Hint, chrome.ListHintShort("select")
+	switch {
+	case p.confirming:
 		hint = p.cfg.ConfirmHint
-	} else if xui.StringWidth(hint, ctx.Method) > boxW-2 {
-		hint = chrome.ListHintShort("select")
+	case p.commandMode:
+		hint, short = p.cfg.CommandHint, chrome.ListHintShort("run")
+	case !p.hintSet && len(p.Commands) > 0:
+		// Advertise the line itself, or nobody finds the prefix. A caller that
+		// supplied Hint has already said what belongs down here.
+		hint = chrome.ListHintExtra("select", CommandPrefix+" commands")
+	}
+	if xui.StringWidth(hint, ctx.Method) > boxW-2 {
+		hint = short
 	}
 	y := boxH - 1
 	w := xui.StringWidth(hint, ctx.Method)

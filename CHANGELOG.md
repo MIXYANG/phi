@@ -13,6 +13,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Models: gateway aliases and explicit `preset` bindings.
 - Models: per-model `request_parameters` overrides for all four APIs,
   including compaction.
+- List picker filter line runs commands: a query starting with `!` searches
+  the caller's commands instead of rows, Enter dispatches the highlighted one
+  (`!fetch origin` passes `origin` as its operand), and KeepOpen commands can
+  refresh the rows without closing the overlay.
 
 ### Changed
 
