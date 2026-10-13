@@ -1,6 +1,7 @@
 package agent_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,14 @@ import (
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 )
+
+// childRequest is the slice of a chat-completion body this test inspects.
+type childRequest struct {
+	Messages []struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	} `json:"messages"`
+}
 
 // TestEngineRunnerChildUsesItsOwnWorkdir pins PP-03 end to end: the request a
 // sub-agent sends must carry the instructions and cwd of its own workdir, not
@@ -66,15 +75,37 @@ func TestEngineRunnerChildUsesItsOwnWorkdir(t *testing.T) {
 	require.NoError(t, err)
 
 	mu.Lock()
-	joined := strings.Join(bodies, "\n")
+	raw := append([]string(nil), bodies...)
 	mu.Unlock()
-	require.NotEmpty(t, joined, "child engine should have issued a request")
+	require.NotEmpty(t, raw, "child engine should have issued a request")
 
-	assert.Contains(t, joined, "child-workdir-rule", "child must load the AGENTS.md of its workdir")
-	assert.Contains(t, joined, "Current directory: "+workdir)
+	// Assert on the decoded prompt, never on the raw body: the wire format
+	// escapes every backslash, so a path substring check against it passes on
+	// POSIX and silently fails on Windows.
+	system := childSystemPrompt(t, raw)
+	require.NotEmpty(t, system, "child request should carry a system prompt")
+
+	assert.Contains(t, system, "child-workdir-rule", "child must load the AGENTS.md of its workdir")
+	assert.Contains(t, system, "- Current directory: "+workdir)
 
 	processCwd, err := os.Getwd()
 	require.NoError(t, err)
-	assert.NotContains(t, joined, "Current directory: "+processCwd,
+	assert.NotContains(t, system, "- Current directory: "+processCwd,
 		"child must not report the parent process cwd")
+}
+
+// childSystemPrompt concatenates the system message of every captured request.
+func childSystemPrompt(t *testing.T, bodies []string) string {
+	t.Helper()
+	var system strings.Builder
+	for _, body := range bodies {
+		var req childRequest
+		require.NoError(t, json.Unmarshal([]byte(body), &req))
+		for _, m := range req.Messages {
+			if m.Role == "system" {
+				system.WriteString(m.Content)
+			}
+		}
+	}
+	return system.String()
 }
