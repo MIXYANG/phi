@@ -445,7 +445,9 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 		p.Hide()
 		p.returnFocus(ctx)
 		ctx.ConsumeAndRedraw()
-	case xui.KeyEnter:
+	case xui.KeyEnter, xui.KeyTab:
+		// Tab picks the highlighted row, like Enter. There is no composer text to
+		// complete here, and Up / Down / Ctrl+P / Ctrl+N already navigate.
 		p.accept()
 		p.returnFocus(ctx)
 		ctx.ConsumeAndRedraw()
@@ -458,12 +460,6 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 		if p.Selected < len(p.filtered)-1 {
 			p.Selected++
 		}
-		ctx.ConsumeAndRedraw()
-	case xui.KeyTab:
-		// Tab picks the highlighted row, like Enter. There is no composer text to
-		// complete here, and Up / Down / Ctrl+P / Ctrl+N already navigate.
-		p.accept()
-		p.returnFocus(ctx)
 		ctx.ConsumeAndRedraw()
 	case xui.KeyBackspace:
 		if p.Cursor > 0 {

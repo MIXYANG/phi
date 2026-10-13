@@ -28,9 +28,7 @@ func TestPickerFilterAndAccept(t *testing.T) {
 	assert.Equal(t, 1, p.Selected, "prefer badged row")
 
 	ctx := &components.EventContext{}
-	for _, r := range "resume" {
-		p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
-	}
+	typeQuery(p, ctx, "resume")
 	require.Len(t, p.filtered, 1)
 	assert.Equal(t, "aaaaaaaa-1111", p.Items[p.filtered[0].index].ID)
 
@@ -85,9 +83,7 @@ func TestPickerRanksFilterHits(t *testing.T) {
 			p := &Picker{Theme: components.DefaultTheme()}
 			p.Show(tc.items, ShowConfig{})
 			ctx := &components.EventContext{}
-			for _, r := range tc.query {
-				p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
-			}
+			typeQuery(p, ctx, tc.query)
 			require.Equal(t, tc.query, p.Query)
 
 			assert.Equal(t, tc.want, p.primaryOrder())
