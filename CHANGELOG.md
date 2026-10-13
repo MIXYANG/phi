@@ -12,6 +12,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [0.28.6] - 2026-10-13
+
+### Added
+
+### Changed
+
 - Box edges read as solid lines instead of hairlines: `Border` is now one gray
   step brighter (`IndexedColor(240)` → `244` in Dark, `#555555` → `#767676` in
   Darcula) for the chat composer, pickers, and panel frames, while staying a
@@ -1026,7 +1040,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.28.5...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.28.6...HEAD
+[0.28.6]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.6
 [0.28.5]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.5
 [0.28.4]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.4
 [0.28.3]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.3
