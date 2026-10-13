@@ -21,6 +21,8 @@ type Mapper struct {
 	Children func(parentToolUseID string) []block.ChildTool
 	// ChildrenByJob returns nested rows keyed by job id (fallback for spawn/task).
 	ChildrenByJob func(jobID string) []block.ChildTool
+	// LabelByJob returns the human label of a job id ("explore: find auth").
+	LabelByJob func(jobID string) string
 }
 
 // NewMapper builds a Mapper with the given theme, spinner, and invalidation callback.
@@ -204,11 +206,12 @@ func (m *Mapper) patchTool(w components.Widget, it session.Item) (ok, dirty bool
 		return false, false
 	}
 	st := uiToolStatus(run.Status)
+	detail := m.agentRowDetail(run.Detail)
 	prevExp := t.Expanded
-	dirty = t.Name != run.Name || t.Detail != run.Detail || t.Output != run.Output ||
+	dirty = t.Name != run.Name || t.Detail != detail || t.Output != run.Output ||
 		t.Error != run.Error || t.Status != st
 	t.Name = run.Name
-	t.Detail = run.Detail
+	t.Detail = detail
 	t.Output = run.Output
 	t.Error = run.Error
 	t.Status = st
@@ -322,7 +325,7 @@ func (m *Mapper) toolWidget(it session.Item, exp bool) components.Widget {
 	}
 	return &block.ToolBlock{
 		Name:     run.Name,
-		Detail:   run.Detail,
+		Detail:   m.agentRowDetail(run.Detail),
 		Output:   run.Output,
 		Error:    run.Error,
 		Status:   uiToolStatus(run.Status),
@@ -350,7 +353,8 @@ func isAgentTreeTool(name string) bool {
 func (m *Mapper) fillAgentBlock(a *block.AgentBlock, it session.Item) {
 	run := it.ToolRun
 	a.Name = run.Name
-	a.Detail = run.Detail
+	a.Detail = m.agentRowDetail(run.Detail)
+	a.HideName = strings.EqualFold(run.Name, "agent_spawn")
 	a.Status = uiToolStatus(run.Status)
 	a.Theme = m.theme
 	a.Spinner = m.spinner
@@ -378,6 +382,20 @@ func (m *Mapper) fillAgentBlock(a *block.AgentBlock, it session.Item) {
 	} else if a.Status == status.ToolRunning || len(a.Children) > 0 || a.Summary != "" {
 		a.Expanded = true
 	}
+}
+
+// agentRowDetail upgrades a bare job id into the job's human label: agent_wait
+// and agent_cancel take only a job id in their args, so without the lookup
+// their rows would read "explore: job_20261013T015507_bd2745fd354abd4b".
+// Unknown details (a label already, or a job the store never saw) pass through.
+func (m *Mapper) agentRowDetail(detail string) string {
+	if m.LabelByJob == nil || strings.TrimSpace(detail) == "" {
+		return detail
+	}
+	if label := m.LabelByJob(strings.TrimSpace(detail)); label != "" {
+		return label
+	}
+	return detail
 }
 
 func uiToolStatus(s session.ToolStatus) status.ToolStatus {

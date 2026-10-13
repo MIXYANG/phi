@@ -11,6 +11,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
@@ -69,9 +70,11 @@ func TestMapperAgentBlockSummaryAndChildren(t *testing.T) {
 	require.Len(t, ab.Children, 1)
 	require.Equal(t, "read", ab.Children[0].Name)
 	require.Equal(t, status.ToolDone, ab.Status)
+	assert.True(t, ab.HideName, "spawn title must not repeat the tool name")
 	surf := ab.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 40}})
 	txt := components.SurfaceText(surf)
 	assert.NotContains(t, txt, `"job_id"`, "raw json leaked")
+	assert.NotContains(t, txt, "agent_spawn", "tool name is noise next to the label")
 }
 
 func TestMapperAgentWaitSummaryOnly(t *testing.T) {
@@ -138,4 +141,59 @@ func TestMapperAgentWaitSummaryOnly(t *testing.T) {
 	require.Empty(t, ab.Children, "wait children still set")
 	assert.Contains(t, ab.Summary, "Done")
 	require.True(t, ab.Expanded, "expected expand when summary present")
+}
+
+// A wait row carries only a job id in its args: the title has to show the job's
+// label, not the id, while the wait is still blocking.
+func TestMapperAgentWaitRowShowsJobLabel(t *testing.T) {
+	store := transcript.NewSubagentStore()
+	store.ApplyResult("call_spawn", tools.ParseAgentResult(`{
+		"job_id":"job_w","status":"running","label":"explore: find auth"
+	}`))
+
+	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
+	m.Children = store.Children
+	m.ChildrenByJob = store.ChildrenByJob
+	m.LabelByJob = store.Label
+
+	snap := session.Snapshot{
+		Messages: []session.Message{{
+			ID:    "m1",
+			Role:  session.RoleAssistant,
+			State: session.StateComplete,
+			Content: []session.ContentBlock{{
+				Type:     session.BlockToolUse,
+				ID:       "call_wait",
+				Name:     "agent_wait",
+				Input:    `{"job_id":"job_w"}`,
+				Complete: true,
+			}},
+		}},
+		Tools: map[string]session.ToolRun{
+			"call_wait": {
+				ToolUseID: "call_wait",
+				Name:      "agent_wait",
+				Status:    session.ToolInProgress,
+				Detail:    "job_w",
+			},
+		},
+	}
+
+	entries, _, _ := m.Sync(nil, nil, snap)
+	ab, ok := entries[0].(*block.AgentBlock)
+	require.True(t, ok, "expected *block.AgentBlock, got %T", entries[0])
+	assert.Equal(t, "explore: find auth", ab.Detail)
+	assert.False(t, ab.HideName, "wait rows keep the tool name to stay distinct")
+
+	// Unknown job: the raw detail survives instead of rendering an empty title.
+	snap.Tools["call_wait"] = session.ToolRun{
+		ToolUseID: "call_wait",
+		Name:      "agent_wait",
+		Status:    session.ToolInProgress,
+		Detail:    "job_unknown",
+	}
+	entries, _, _ = m.Sync(entries, []string{"call_wait"}, snap)
+	ab, ok = entries[0].(*block.AgentBlock)
+	require.True(t, ok, "expected *block.AgentBlock, got %T", entries[0])
+	assert.Equal(t, "job_unknown", ab.Detail)
 }

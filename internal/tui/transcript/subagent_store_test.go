@@ -47,8 +47,10 @@ func TestSubagentStoreProgressAndResult(t *testing.T) {
 	require.Len(t, byJob, 2)
 
 	s.ApplyResult("parent1", tools.ParseAgentResult(`{
-		"job_id":"job1","status":"completed","summary":"## Ok"
+		"job_id":"job1","status":"completed","label":"explore: find auth","summary":"## Ok"
 	}`))
-	// Summary is stored; Children unchanged.
+	// Summary / label are stored; Children unchanged.
 	require.Len(t, s.Children("parent1"), 2, "children should not be cleared")
+	require.Equal(t, "explore: find auth", s.Label("job1"))
+	require.Empty(t, s.Label("job_missing"))
 }

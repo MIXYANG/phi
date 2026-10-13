@@ -22,8 +22,11 @@ type ChildTool struct {
 // AgentBlock renders agent_spawn / agent_wait with an optional
 // nested tool tree and a terminal markdown summary (not raw JSON).
 type AgentBlock struct {
-	Name     string
-	Detail   string
+	Name   string
+	Detail string
+	// HideName drops the tool name from the title: the label is already
+	// self-describing ("explore: find auth"), so "agent_spawn" is noise.
+	HideName bool
 	Status   status.ToolStatus
 	Children []ChildTool
 	Summary  string // markdown; shown only when set
@@ -73,14 +76,17 @@ func (a *AgentBlock) toggle() {
 	}
 }
 
-// CopyText returns name, detail, child lines, and summary.
+// CopyText returns the title, child lines, and summary.
 func (a *AgentBlock) CopyText() string {
 	var b strings.Builder
-	b.WriteString(a.Name)
-	if a.Detail != "" {
-		b.WriteByte(' ')
-		b.WriteString(a.Detail)
+	var head []string
+	if !a.HideName {
+		head = append(head, a.Name)
 	}
+	if a.Detail != "" {
+		head = append(head, a.Detail)
+	}
+	b.WriteString(strings.Join(head, " "))
 	st := tree.DefaultStyle()
 	for i, c := range a.Children {
 		b.WriteByte('\n')
@@ -115,12 +121,16 @@ func (a *AgentBlock) Draw(ctx components.DrawContext) components.Surface {
 	}
 
 	icon, iconSt := chrome.ToolIcon(a.Status, th, a.Spinner)
-	spans := []components.Span{
-		{Text: icon + " ", Style: iconSt},
-		{Text: a.Name, Style: th.ToolName},
+	spans := []components.Span{{Text: icon + " ", Style: iconSt}}
+	if !a.HideName {
+		spans = append(spans, components.Span{Text: a.Name, Style: th.ToolName})
 	}
 	if a.Detail != "" {
-		spans = append(spans, components.Span{Text: " " + a.Detail, Style: th.Muted})
+		text := a.Detail
+		if !a.HideName {
+			text = " " + text
+		}
+		spans = append(spans, components.Span{Text: text, Style: th.Muted})
 	}
 	if suf := chrome.StatusSuffix(a.Status); suf != "" {
 		spans = append(spans, components.Span{Text: suf, Style: th.Muted})

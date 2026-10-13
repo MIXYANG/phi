@@ -73,6 +73,22 @@ func TestAgentBlockRendersTreeAndMarkdown(t *testing.T) {
 	require.NotContains(t, txt, `"summary"`)
 }
 
+// With HideName the label stands alone: "explore: find auth", not
+// "agent_spawn explore: find auth".
+func TestAgentBlockHideName(t *testing.T) {
+	a := &block.AgentBlock{
+		Name:     "agent_spawn",
+		Detail:   "explore: find auth",
+		HideName: true,
+		Status:   status.ToolDone,
+		Theme:    components.DefaultTheme(),
+	}
+	txt := components.SurfaceText(a.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 5}}))
+	require.Contains(t, txt, "explore: find auth")
+	require.NotContains(t, txt, "agent_spawn")
+	require.NotContains(t, a.CopyText(), "agent_spawn")
+}
+
 func TestUserBlockImplementsWidget(_ *testing.T) {
 	var _ components.Widget = &block.UserBlock{Text: "x", Theme: components.DefaultTheme()}
 }

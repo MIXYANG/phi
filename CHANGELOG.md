@@ -18,6 +18,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Sub-agent rows in the transcript name the job (`explore: find auth config`)
+  instead of printing its id, and an `agent_spawn` title no longer repeats the
+  tool name. A finished `agent_spawn` keeps the label it started with, and
+  `agent_wait` / `agent_cancel` rows resolve the job id they were given to that
+  same label.
+
 ### Security
 
 ## [0.28.5] - 2026-10-12

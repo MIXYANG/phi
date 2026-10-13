@@ -20,6 +20,7 @@ type SubagentStore struct {
 type subagentView struct {
 	JobID           string
 	ParentToolUseID string
+	Label           string // "explore: find auth"; never a job id
 	Children        []block.ChildTool
 	childIdx        map[string]int
 	Summary         string
@@ -109,7 +110,7 @@ func (s *SubagentStore) ApplyProgress(p job.Progress) bool {
 	return true
 }
 
-// ApplyResult records terminal summary / binding from agent tool JSON output.
+// ApplyResult records label / terminal summary from agent tool JSON output.
 func (s *SubagentStore) ApplyResult(parentToolUseID string, r tools.AgentResult) {
 	if s == nil || !r.OK {
 		return
@@ -117,9 +118,27 @@ func (s *SubagentStore) ApplyResult(parentToolUseID string, r tools.AgentResult)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	v := s.viewLocked(r.JobID, parentToolUseID)
+	if r.Label != "" {
+		v.Label = r.Label
+	}
 	if sum := r.RenderableSummary(); sum != "" {
 		v.Summary = sum
 	}
+}
+
+// Label returns the human label bound to a job id, or "" when unknown.
+// agent_wait / agent_cancel rows carry only a job id in their args; this is
+// what lets the transcript show the job's name instead.
+func (s *SubagentStore) Label(jobID string) string {
+	if s == nil || jobID == "" {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if v := s.byJob[jobID]; v != nil {
+		return v.Label
+	}
+	return ""
 }
 
 // Children returns a copy of nested tools for a parent tool_use id.
