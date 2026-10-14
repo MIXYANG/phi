@@ -10,12 +10,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-### Changed
+- List picker filter line runs commands: a query starting with `!` searches
+  the caller's commands instead of rows, Enter dispatches the highlighted one
+  (`!fetch origin` passes `origin` as its operand), and KeepOpen commands can
+  refresh the rows without closing the overlay.
 
-- Box edges read as solid lines instead of hairlines: `Border` is now one gray
-  step brighter (`IndexedColor(240)` → `244` in Dark, `#555555` → `#767676` in
-  Darcula) for the chat composer, pickers, and panel frames, while staying a
-  step under the muted labels those frames embed.
+### Changed
 
 ### Deprecated
 
@@ -23,6 +23,39 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+### Security
+
+## [0.28.6] - 2026-10-13
+
+### Added
+
+### Changed
+
+- Box edges read as solid lines instead of hairlines: `Border` is now one gray
+  step brighter (`IndexedColor(240)` → `244` in Dark, `#555555` → `#767676` in
+  Darcula) for the chat composer, pickers, and panel frames, while staying a
+  step under the muted labels those frames embed.
+- Conflicting project instructions now resolve by a stated priority ladder
+  instead of load order. The system prompt ranks the permission gate and safety
+  constraints above the user's instruction for the task, which outranks the
+  cwd's `AGENTS.md`, then parent directories, the filesystem root, and global
+  `~/.phi`. Each `<project_instructions>` block carries an explicit `priority`
+  number, so a user instruction outranks file preferences without overriding the
+  gate.
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+- Picker filters (`/branch`, `/sessions`, diff file picker, settings lists) rank
+  by where the query hit: an exact name first, then names that start with it,
+  then names that contain it, and last the rows whose detail or commit subject
+  merely mentions it. Ties keep the caller's order — current branch, recently
+  checked out, newest session — so searching `origin/main` lands on the branch
+  named `origin/main` instead of one whose last commit says "merge
+  origin/main".
 - Sub-agents build their system prompt from their own workdir: a job spawned
   with `workdir` now loads that directory's `AGENTS.md` and reports its cwd
   instead of the spawning process's.
@@ -1012,7 +1045,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.28.5...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.28.6...HEAD
+[0.28.6]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.6
 [0.28.5]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.5
 [0.28.4]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.4
 [0.28.3]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.3
