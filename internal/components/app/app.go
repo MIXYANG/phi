@@ -10,9 +10,16 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/palette"
 )
 
+const (
+	// terminalTimeout wait for the terminal query response.
+	terminalTimeout = 500 * time.Millisecond
+	// tickerInterval is the frame tick interval (60fps).
+	tickerInterval = time.Second / 60
+)
+
 // App is the vxfw-style application runtime.
 type App struct {
-	vx       *xui.XUI
+	ui       *xui.XUI
 	loop     *xui.Loop
 	root     components.Widget
 	focused  components.Widget
@@ -27,7 +34,7 @@ type App struct {
 
 // NewApp creates an App around an existing Vaxis.
 func NewApp(vx *xui.XUI) *App {
-	return &App{vx: vx, redraw: true}
+	return &App{ui: vx, redraw: true}
 }
 
 // RequestRedraw schedules a frame from any goroutine (stream updates, etc).
@@ -42,16 +49,16 @@ func (a *App) RequestRedraw() {
 // Run starts the event loop and drives root until quit.
 func (a *App) Run(root components.Widget) error {
 	a.root = root
-	a.loop = xui.NewLoop(a.vx)
+	a.loop = xui.NewLoop(a.ui)
 	a.loop.Start()
 	defer a.loop.Stop()
 
-	if err := a.vx.EnterAltScreen(); err != nil {
+	if err := a.ui.EnterAltScreen(); err != nil {
 		return err
 	}
-	a.vx.NotifyWinsize(a.loop)
-	a.vx.QueryTerminal(500 * time.Millisecond)
-	_ = a.vx.EnableMouse()
+	a.ui.NotifyWinsize(a.loop)
+	a.ui.QueryTerminal(terminalTimeout)
+	_ = a.ui.EnableMouse()
 
 	// Init event
 	ctx := &components.EventContext{Redraw: true}
@@ -65,7 +72,7 @@ func (a *App) Run(root components.Widget) error {
 	}
 	a.redraw = false
 
-	ticker := time.NewTicker(time.Second / 60)
+	ticker := time.NewTicker(tickerInterval)
 	defer ticker.Stop()
 
 	for {
@@ -148,7 +155,7 @@ func (a *App) coalesceWheel(ev xui.Event) xui.Event {
 		m.Action = xui.MouseMotion
 	}
 	// Full refresh heals any prior TTY desync before the scrolled frame paints.
-	a.vx.QueueRefresh()
+	a.ui.QueueRefresh()
 	return m
 }
 
@@ -156,7 +163,7 @@ func (a *App) handleEvent(ev xui.Event) (quit bool) {
 	ctx := &components.EventContext{}
 	switch e := ev.(type) {
 	case xui.ResizeEvent:
-		a.vx.Resize(e.Cols, e.Rows)
+		a.ui.Resize(e.Cols, e.Rows)
 		ctx.Redraw = true
 	case xui.KeyEvent:
 		if e.CtrlC() {
@@ -260,7 +267,7 @@ func acceptsKeyboardFocus(w components.Widget) bool {
 }
 
 func (a *App) draw() error {
-	cols, rows := a.vx.Screen().Size()
+	cols, rows := a.ui.Screen().Size()
 	ctx := components.DrawContext{
 		Min:    components.Size{},
 		Max:    components.Size{Width: cols, Height: rows},
@@ -268,12 +275,12 @@ func (a *App) draw() error {
 	}
 	surf := a.root.Draw(ctx)
 	a.lastSurf = surf
-	win := a.vx.Window()
+	win := a.ui.Window()
 	win.Clear()
 	if cur := surf.Render(win); cur != nil {
-		a.vx.Screen().SetCursor(cur.X, cur.Y)
+		a.ui.Screen().SetCursor(cur.X, cur.Y)
 	} else {
-		a.vx.Screen().ClearCursor()
+		a.ui.Screen().ClearCursor()
 	}
-	return a.vx.Render()
+	return a.ui.Render()
 }
