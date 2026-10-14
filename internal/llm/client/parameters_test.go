@@ -17,6 +17,7 @@ func TestRequestParametersFailBeforeNetwork(t *testing.T) {
 		{API: llm.Anthropic, RequestParameters: llm.RequestParameters{"messages": nil}},
 		{API: llm.Gemini, RequestParameters: llm.RequestParameters{"contents": nil}},
 		{API: llm.OpenAIResponses, RequestParameters: llm.RequestParameters{"input": nil}},
+		{API: llm.OpenAIResponses, RequestParameters: llm.RequestParameters{"background": true}},
 		{API: llm.OpenAI, RequestParameters: llm.RequestParameters{"messages": nil}},
 		{API: llm.OpenAI, RequestParameters: llm.RequestParameters{"n": 2}},
 	} {

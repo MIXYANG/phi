@@ -48,6 +48,17 @@ func TestGeminiParametersValidation(t *testing.T) {
 	}
 }
 
+func TestResponsesBackgroundParameters(t *testing.T) {
+	for _, value := range []any{true, json.RawMessage(` true `)} {
+		require.ErrorContains(t, (RequestParameters{"background": value}).Validate(OpenAIResponses),
+			"request_parameters.background=true is unsupported")
+	}
+	for _, value := range []any{false, nil} {
+		require.NoError(t, (RequestParameters{"background": value}).Validate(OpenAIResponses))
+	}
+	require.NoError(t, (RequestParameters{"background": true}).Validate(OpenAI))
+}
+
 func TestGeminiParameterMergeKeepsManagedLimits(t *testing.T) {
 	original := json.RawMessage(`{"generationConfig":{"maxOutputTokens":64}}`)
 	body, err := MarshalRequest(original, ModelConfig{

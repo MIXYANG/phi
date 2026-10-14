@@ -58,6 +58,13 @@ func (p RequestParameters) validatedPatch(api RouterType) (map[string]json.RawMe
 			"previous_response_id",
 			"conversation":
 			return nil, fmt.Errorf("request_parameters.%s is managed by phi; remove this override", key)
+		case "background":
+			// Compaction requires a completed response; phi does not poll background jobs.
+			if api == OpenAIResponses && bytes.Equal(bytes.TrimSpace(value), []byte("true")) {
+				return nil, errors.New(
+					"request_parameters.background=true is unsupported for OpenAIResponses; remove it or set it to false",
+				)
+			}
 		case "extra_body":
 			if !bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 				return nil, errors.New(

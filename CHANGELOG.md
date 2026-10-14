@@ -28,6 +28,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Responses: reject `background: true` before sending synchronous requests.
 - Models: prefer the actual model over routing prefixes when matching aliases.
 - Models: adapt GLM and DeepSeek thinking to API endpoints; configuration and
   session pickers enforce supported thinking levels.
