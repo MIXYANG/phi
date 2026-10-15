@@ -134,11 +134,14 @@ func BuildRequest(
 
 		case llm.RoleAssistant:
 			msg := anthropicMessage{Role: "assistant"}
-			state := m.ProviderState
-			prefixSum := hex.EncodeToString(prefix.Sum(nil))
-			if state != nil && state.Provider == llm.Anthropic &&
+			// Replay the captured blocks only when this turn's prefix is the
+			// one they were captured under. The digest is computed last: most
+			// assistant messages carry no provider state and short-circuit
+			// before it.
+			if state := m.ProviderState; state != nil && state.Provider == llm.Anthropic &&
 				state.Model == cfg.Name && state.Endpoint == endpoint && prefixValid &&
-				len(state.Data.Items) > 0 && state.Data.Prefix == prefixSum && req.Thinking != nil {
+				len(state.Data.Items) > 0 && req.Thinking != nil &&
+				state.Data.Prefix == hex.EncodeToString(prefix.Sum(nil)) {
 				items := make([]json.RawMessage, len(state.Data.Items))
 				for j, item := range state.Data.Items {
 					items[j] = bytes.Clone(item)
@@ -232,11 +235,32 @@ func BuildRequest(
 }
 
 func normalizeToolCallID(id string) string {
+	// Provider ids already sit in the allowed alphabet, so the regexp (and the
+	// copy it always allocates) is only worth paying for the rare offending id.
+	if len(id) <= maxToolCallIDLen && isToolCallID(id) {
+		return id
+	}
 	normalized := toolCallIDRegex.ReplaceAllString(id, "_")
-	if len(normalized) > 64 {
-		normalized = normalized[:64]
+	if len(normalized) > maxToolCallIDLen {
+		normalized = normalized[:maxToolCallIDLen]
 	}
 	return normalized
+}
+
+// maxToolCallIDLen is the Messages API limit on a tool_use id.
+const maxToolCallIDLen = 64
+
+// isToolCallID reports whether every byte of id is one the Messages API allows,
+// i.e. [a-zA-Z0-9_-].
+func isToolCallID(id string) bool {
+	for i := 0; i < len(id); i++ {
+		switch c := id[i]; {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '_', c == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func toolUseInput(arguments string) json.RawMessage {
@@ -390,6 +414,25 @@ func Stream(
 	}
 }
 
+// streamEvent is one decoded Messages API SSE payload. Decoding every event
+// with one struct keeps the stream loop to a single JSON pass; the sub-objects
+// only the rare event types read stay raw so their shape cannot change what the
+// hot content_block_delta path does.
+type streamEvent struct {
+	Type         string          `json:"type"`
+	Index        int             `json:"index"`
+	Message      json.RawMessage `json:"message,omitempty"`
+	Usage        json.RawMessage `json:"usage,omitempty"`
+	ContentBlock json.RawMessage `json:"content_block,omitempty"`
+	Delta        struct {
+		Type        string `json:"type"`
+		Text        string `json:"text"`
+		Thinking    string `json:"thinking"`
+		Signature   string `json:"signature"`
+		PartialJSON string `json:"partial_json"`
+	} `json:"delta"`
+}
+
 func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 	var (
 		content     strings.Builder
@@ -413,29 +456,27 @@ stream:
 			continue
 		}
 
-		var envelope struct {
-			Type string `json:"type"`
-		}
-		if err := json.Unmarshal(payloadLine, &envelope); err != nil {
+		var ev streamEvent
+		if err := json.Unmarshal(payloadLine, &ev); err != nil {
 			native.invalid = true
 			continue
 		}
 
-		switch envelope.Type {
+		switch ev.Type {
 		case "message_start":
 			var msg struct {
-				Message struct {
-					Usage struct {
-						InputTokens int `json:"input_tokens"`
-						CacheRead   int `json:"cache_read_input_tokens"`
-						CacheCreate int `json:"cache_creation_input_tokens"`
-					} `json:"usage"`
-				} `json:"message"`
+				Usage struct {
+					InputTokens int `json:"input_tokens"`
+					CacheRead   int `json:"cache_read_input_tokens"`
+					CacheCreate int `json:"cache_creation_input_tokens"`
+				} `json:"usage"`
 			}
-			if err := json.Unmarshal(payloadLine, &msg); err != nil {
-				continue
+			if len(ev.Message) > 0 {
+				if err := json.Unmarshal(ev.Message, &msg); err != nil {
+					continue
+				}
 			}
-			u := msg.Message.Usage
+			u := msg.Usage
 			// Anthropic reports disjoint buckets already: input_tokens excludes
 			// both cache reads and cache writes, so it needs no splitting.
 			usage.PromptTokens = u.InputTokens
@@ -447,15 +488,7 @@ stream:
 			}
 
 		case "content_block_start":
-			var block struct {
-				Index        int             `json:"index"`
-				ContentBlock json.RawMessage `json:"content_block"`
-			}
-			if err := json.Unmarshal(payloadLine, &block); err != nil {
-				native.invalid = true
-				continue
-			}
-			native.start(block.Index, block.ContentBlock)
+			native.start(ev.Index, ev.ContentBlock)
 			var start struct {
 				Type     string          `json:"type"`
 				ID       string          `json:"id"`
@@ -464,13 +497,13 @@ stream:
 				Thinking string          `json:"thinking"`
 				Input    json.RawMessage `json:"input"`
 			}
-			if json.Unmarshal(block.ContentBlock, &start) != nil {
+			if json.Unmarshal(ev.ContentBlock, &start) != nil {
 				native.invalid = true
 				continue
 			}
 			if start.Type == "tool_use" {
 				currentTool = &llm.ToolCall{
-					Index: block.Index,
+					Index: ev.Index,
 					ID:    start.ID,
 					Type:  "function",
 					Function: llm.Function{
@@ -490,53 +523,39 @@ stream:
 			}
 
 		case "content_block_delta":
-			var block struct {
-				Index int `json:"index"`
-				Delta struct {
-					Type        string `json:"type"`
-					Text        string `json:"text"`
-					Thinking    string `json:"thinking"`
-					Signature   string `json:"signature"`
-					PartialJSON string `json:"partial_json"`
-				} `json:"delta"`
-			}
-			if err := json.Unmarshal(payloadLine, &block); err != nil {
-				native.invalid = true
-				continue
-			}
-
-			switch block.Delta.Type {
+			delta := ev.Delta
+			switch delta.Type {
 			case "text_delta":
-				native.delta(block.Index, block.Delta.Type, block.Delta.Text)
-				content.WriteString(block.Delta.Text)
+				native.delta(ev.Index, delta.Type, delta.Text)
+				content.WriteString(delta.Text)
 				if !yield(llm.StreamEvent{
 					Type:  llm.StreamEventTypeDelta,
-					Delta: llm.StreamDelta{Content: block.Delta.Text},
+					Delta: llm.StreamDelta{Content: delta.Text},
 					Usage: usage,
 				}, nil) {
 					return
 				}
 
 			case "thinking_delta":
-				native.delta(block.Index, block.Delta.Type, block.Delta.Thinking)
-				reasoning.WriteString(block.Delta.Thinking)
+				native.delta(ev.Index, delta.Type, delta.Thinking)
+				reasoning.WriteString(delta.Thinking)
 				if !yield(llm.StreamEvent{
 					Type:  llm.StreamEventTypeDelta,
-					Delta: llm.StreamDelta{ReasoningContent: block.Delta.Thinking},
+					Delta: llm.StreamDelta{ReasoningContent: delta.Thinking},
 					Usage: usage,
 				}, nil) {
 					return
 				}
 
 			case "signature_delta":
-				native.delta(block.Index, block.Delta.Type, block.Delta.Signature)
+				native.delta(ev.Index, delta.Type, delta.Signature)
 
 			case "input_json_delta":
-				native.delta(block.Index, block.Delta.Type, block.Delta.PartialJSON)
+				native.delta(ev.Index, delta.Type, delta.PartialJSON)
 				if currentTool == nil {
 					continue
 				}
-				toolArgs.WriteString(block.Delta.PartialJSON)
+				toolArgs.WriteString(delta.PartialJSON)
 				currentTool.Function.Arguments = toolArgs.String()
 				if !yield(llm.StreamEvent{
 					Type: llm.StreamEventTypeDelta,
@@ -558,15 +577,8 @@ stream:
 			}
 
 		case "content_block_stop":
-			var block struct {
-				Index int `json:"index"`
-			}
-			if err := json.Unmarshal(payloadLine, &block); err != nil {
-				native.invalid = true
-				continue
-			}
-			native.stop(block.Index, toolArgs.String())
-			if currentTool != nil && block.Index == currentTool.Index {
+			native.stop(ev.Index, toolArgs.String())
+			if currentTool != nil && ev.Index == currentTool.Index {
 				if toolArgs.Len() > 0 {
 					currentTool.Function.Arguments = toolArgs.String()
 				}
@@ -576,15 +588,15 @@ stream:
 			}
 
 		case "message_delta":
-			var msgDelta struct {
-				Usage struct {
-					OutputTokens int `json:"output_tokens"`
-				} `json:"usage"`
+			var u struct {
+				OutputTokens int `json:"output_tokens"`
 			}
-			if err := json.Unmarshal(payloadLine, &msgDelta); err != nil {
-				continue
+			if len(ev.Usage) > 0 {
+				if err := json.Unmarshal(ev.Usage, &u); err != nil {
+					continue
+				}
 			}
-			usage.CompletionTokens = msgDelta.Usage.OutputTokens
+			usage.CompletionTokens = u.OutputTokens
 		case "error":
 			err := fmt.Errorf("anthropic stream error: %s", llm.APIErrorMessage(payloadLine))
 			yield(llm.StreamEvent{Type: llm.StreamEventTypeError, Err: err.Error()}, err)

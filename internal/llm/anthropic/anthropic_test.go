@@ -182,6 +182,49 @@ func TestProcessStreamTextAndUsage(t *testing.T) {
 	require.Equal(t, 969, msg.Usage.ContextTokens(), "all buckets are the context")
 }
 
+func TestProcessStreamMalformedEventDropsNativeState(t *testing.T) {
+	// One signed thinking block, optionally with an unparseable payload spliced
+	// in. A bad payload is the signal that the captured blocks may not match
+	// what the model sent, so the native state must not be replayed.
+	thinkingStream := func(bad string) string {
+		lines := []string{
+			`data: {"type":"message_start","message":{"usage":{"input_tokens":1}}}`,
+			"",
+			`data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}`,
+			"",
+		}
+		if bad != "" {
+			lines = append(lines, bad, "")
+		}
+		return strings.Join(append(lines,
+			`data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}`,
+			"",
+			`data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}`,
+			"",
+			`data: {"type":"content_block_stop","index":0}`,
+			"",
+			`data: {"type":"message_stop"}`,
+			"",
+		), "\n")
+	}
+
+	t.Run("clean stream keeps the state", func(t *testing.T) {
+		events := processForTest(thinkingStream(""))
+		done := events[len(events)-1]
+		require.Equal(t, llm.StreamEventTypeDone, done.Type)
+		require.NotNil(t, done.Final)
+		require.NotNil(t, done.Final.ProviderState, "a clean thinking turn is replayable")
+	})
+
+	t.Run("bad line drops it", func(t *testing.T) {
+		events := processForTest(thinkingStream("data: {not json}"))
+		done := events[len(events)-1]
+		require.Equal(t, llm.StreamEventTypeDone, done.Type)
+		require.NotNil(t, done.Final)
+		assert.Nil(t, done.Final.ProviderState)
+	})
+}
+
 func TestProcessStreamToolUseAndThinking(t *testing.T) {
 	sse := strings.Join([]string{
 		`data: {"type":"message_start","message":{"usage":{"input_tokens":5}}}`,
