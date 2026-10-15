@@ -32,5 +32,3 @@ Out of scope examples:
 - Issues that require a malicious model provider already trusted by the user
 - Vulnerabilities only present in third-party MCP servers or extensions you installed
 - Social engineering of API keys stored in the user’s own config
-
-Product overview of local-first design: [pulseaiclub.github.io/security](https://pulseaiclub.github.io/security/)
