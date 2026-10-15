@@ -6,7 +6,7 @@ import (
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/permission"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 // EngineOption configures optional NewEngine dependencies.
@@ -16,7 +16,7 @@ type engineConfig struct {
 	gate         permission.Gate
 	ask          permission.AskFunc
 	continueAsk  ContinueFunc
-	tools        []tools.Tool
+	tools        []tooldef.Tool
 	maxRounds    int
 	jobs         *job.Manager
 	extensions   *extension.Runner
@@ -41,7 +41,7 @@ func WithContinueAsk(fn ContinueFunc) EngineOption {
 }
 
 // WithTools sets the base tool list (nil = tools.DefaultTools(); sub-agents use ChildTools()).
-func WithTools(list []tools.Tool) EngineOption {
+func WithTools(list []tooldef.Tool) EngineOption {
 	return func(c *engineConfig) { c.tools = list }
 }
 

@@ -1,6 +1,7 @@
 package agent_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -101,6 +102,45 @@ func TestEngineRunnerViaJobManager(t *testing.T) {
 
 	_, err = session.OpenSession(jsonl)
 	require.NoError(t, err)
+}
+
+func TestEngineRunnerExplicitPreset(t *testing.T) {
+	type request struct {
+		ThinkingConfig struct {
+			ThinkingBudget *int `json:"thinkingBudget"`
+		} `json:"thinkingConfig"`
+	}
+	requests := make(chan request, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body request
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		requests <- body
+		assert.Contains(t, r.URL.Path, "opaque-route:streamGenerateContent")
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"OK\"}]}}]}\n\n")
+	}))
+	defer srv.Close()
+
+	runner := agent.EngineRunner{
+		Model: llm.ModelConfig{
+			Name: "opaque-route", Preset: "gemini-2.5-pro", API: llm.Gemini,
+			BaseURL: srv.URL, APIKey: "test",
+			Think: llm.ThinkConfig{Enabled: true, Mode: llm.Low},
+		},
+	}
+	text, err := runner.Run(t.Context(), job.RunEnv{
+		Job: job.Meta{Dir: t.TempDir(), WorkDir: t.TempDir(), Prompt: "Reply OK"},
+		Log: func(string) {},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "OK", text)
+	select {
+	case body := <-requests:
+		require.NotNil(t, body.ThinkingConfig.ThinkingBudget)
+		assert.Equal(t, 2048, *body.ThinkingConfig.ThinkingBudget)
+	default:
+		assert.Fail(t, "child engine did not send a request")
+	}
 }
 
 func TestEngineRunnerCancel(t *testing.T) {

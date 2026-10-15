@@ -6,7 +6,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/block"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 )
 
 // SubagentStore holds UI-only nested tool trees for agent_* rows.
@@ -111,7 +111,7 @@ func (s *SubagentStore) ApplyProgress(p job.Progress) bool {
 }
 
 // ApplyResult records label / terminal summary from agent tool JSON output.
-func (s *SubagentStore) ApplyResult(parentToolUseID string, r tools.AgentResult) {
+func (s *SubagentStore) ApplyResult(parentToolUseID string, r agenttool.AgentResult) {
 	if s == nil || !r.OK {
 		return
 	}

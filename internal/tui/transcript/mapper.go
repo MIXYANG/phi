@@ -7,7 +7,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/block"
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 )
 
 // Mapper converts session.Snapshot items into transcript widgets.
@@ -360,7 +360,7 @@ func (m *Mapper) fillAgentBlock(a *block.AgentBlock, it session.Item) {
 	a.Spinner = m.spinner
 	a.Error = run.Error
 
-	parsed := tools.ParseAgentResult(run.Output)
+	parsed := agenttool.ParseAgentResult(run.Output)
 	if sum := parsed.RenderableSummary(); sum != "" {
 		a.Summary = sum
 	} else {

@@ -9,7 +9,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/permission"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 func TestSpecForRoleExplore(t *testing.T) {
@@ -65,7 +65,7 @@ func TestParseRole(t *testing.T) {
 	require.Error(t, err)
 }
 
-func toolNameSet(list []tools.Tool) map[string]bool {
+func toolNameSet(list []tooldef.Tool) map[string]bool {
 	m := make(map[string]bool, len(list))
 	for _, tool := range list {
 		m[tool.Definition.Name] = true

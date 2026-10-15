@@ -12,7 +12,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/permission"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 func TestNewEngineRoundBudget(t *testing.T) {
@@ -36,7 +36,7 @@ func TestNewEngineRoundBudget(t *testing.T) {
 			var runs atomic.Int32
 			sess, err := NewSession(WithCwd(t.TempDir()))
 			require.NoError(t, err)
-			opts := append([]EngineOption{WithTools([]tools.Tool{countingTool(&runs)})}, tt.opts...)
+			opts := append([]EngineOption{WithTools([]tooldef.Tool{countingTool(&runs)})}, tt.opts...)
 			engine, err := NewEngine(llm.ModelConfig{
 				Name: "fake", BaseURL: server.URL, APIKey: "x", MaxRounds: tt.model,
 			}, sess, opts...)
@@ -61,7 +61,7 @@ func TestSetMaxRoundsNormalizesWithoutChangingModel(t *testing.T) {
 	sess, err := NewSession(WithCwd(t.TempDir()))
 	require.NoError(t, err)
 	cfg := llm.ModelConfig{Name: "fake", MaxRounds: 7}
-	engine, err := NewEngine(cfg, sess, WithTools([]tools.Tool{}))
+	engine, err := NewEngine(cfg, sess, WithTools([]tooldef.Tool{}))
 	require.NoError(t, err)
 	for _, tt := range []struct{ value, expected int }{{3, 3}, {0, 64}, {-1, 64}} {
 		engine.SetMaxRounds(tt.value)
@@ -139,7 +139,7 @@ func TestEngineRunnerInheritsRoundBudget(t *testing.T) {
 			runner := EngineRunner{
 				Model: cfg,
 				Gate:  permission.AllowAll{},
-				Tools: []tools.Tool{countingTool(&runs)},
+				Tools: []tooldef.Tool{countingTool(&runs)},
 			}
 			if useModelFn {
 				runner.Model.MaxRounds = 5

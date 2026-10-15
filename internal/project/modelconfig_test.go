@@ -85,12 +85,18 @@ func TestEnvironmentOverridesResolveEffectiveModel(t *testing.T) {
 	t.Setenv("PHI_MODEL", "vendor/glm-5.3-flash")
 	t.Setenv("PHI_BASE_URL", "https://new.example/v1")
 	t.Setenv("PHI_THINK_LEVEL", "low")
+	t.Setenv("PHI_SKILL_PATH", "~/env-skills")
 	require.NoError(t, p.LoadConfig())
 	m := p.Config().Model()
 	assert.Equal(t, "vendor/glm-5.3-flash", m.Name)
 	assert.Equal(t, "https://new.example/v1", m.BaseURL)
 	assert.True(t, m.ImageEnabled)
 	assert.Equal(t, llm.Low, m.Think.Mode)
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+	require.NotEmpty(t, m.SkillPaths)
+	assert.Equal(t, filepath.Join(home, "env-skills"), m.SkillPaths[0])
+	assert.Contains(t, m.SkillPaths, filepath.Join(p.Root(), ".agents", "skills"))
 }
 
 func TestModelThinkingConstraints(t *testing.T) {

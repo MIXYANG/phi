@@ -5,7 +5,7 @@ import (
 
 	ext "github.com/pulseaiclub/phi/ext/go"
 
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 // model is an immutable snapshot of everything the host derives from the
@@ -26,7 +26,7 @@ type model struct {
 	handlers    map[string][]any // event → handlers, extension-name order
 	tools       []ext.ToolInfo   // builtin first, then extension tools
 	activeTools []ext.ToolInfo   // tools is filtered by the active set
-	extTools    []tools.Tool     // extension tools as agent tools
+	extTools    []tooldef.Tool   // extension tools as agent tools
 	commands    []ext.CommandEntry
 }
 

@@ -12,7 +12,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
@@ -26,7 +26,7 @@ const (
 
 // Executor runs model tool_calls against a tool registry and emits ToolData for the UI.
 type Executor struct {
-	registry  tools.Registry
+	registry  tooldef.Registry
 	gate      permission.Gate
 	ask       permission.AskFunc
 	ext       *extension.Runner // nil = disabled; methods are nil-safe no-ops
@@ -40,7 +40,7 @@ type Executor struct {
 
 // NewExecutor builds an executor. extRunner may be nil.
 func NewExecutor(
-	registry tools.Registry,
+	registry tooldef.Registry,
 	gate permission.Gate,
 	ask permission.AskFunc,
 	extRunner *extension.Runner,
@@ -172,7 +172,7 @@ func (e *Executor) runOne(
 	call llm.ToolCall,
 	emit func(session.ToolData) bool,
 ) (llm.Message, bool, string) {
-	ctx = tools.WithCwd(ctx, e.cwd)
+	ctx = tooldef.WithCwd(ctx, e.cwd)
 	tool, ok := e.registry[call.Function.Name]
 	args := json.RawMessage(call.Function.Arguments)
 	detail := call.Function.Arguments
@@ -223,7 +223,7 @@ func (e *Executor) runOne(
 		return msg, false, ""
 	}
 
-	result, err := tool.Run(tools.WithToolCallID(ctx, call.ID), args)
+	result, err := tool.Run(tooldef.WithToolCallID(ctx, call.ID), args)
 
 	var (
 		errText string

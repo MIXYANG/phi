@@ -13,10 +13,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Models: gateway aliases and explicit `preset` bindings.
 - Models: per-model `request_parameters` overrides for all four APIs,
   including compaction.
-- List picker filter line runs commands: a query starting with `!` searches
-  the caller's commands instead of rows, Enter dispatches the highlighted one
-  (`!fetch origin` passes `origin` as its operand), and KeepOpen commands can
-  refresh the rows without closing the overlay.
 
 ### Changed
 
@@ -33,6 +29,39 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Models: adapt GLM and DeepSeek thinking to API endpoints; configuration and
   session pickers enforce supported thinking levels.
 - Config editor: show resolved defaults and model validation errors.
+
+### Security
+
+## [0.28.7] - 2026-10-14
+
+### Added
+
+- List picker filter line runs commands: a query starting with `!` searches
+  the caller's commands instead of rows, Enter dispatches the highlighted one
+  (`!fetch origin` passes `origin` as its operand), and KeepOpen commands can
+  refresh the rows without closing the overlay.
+- Skills load from the Agent Skills locations as well: `~/.agents/skills/` and
+  `.agents/skills/` from the working directory up to the repository root, after
+  `skill_path` (and after `~/.phi/skills` when none is set). A leading `~` in
+  `skill_path` or `PHI_SKILL_PATH` expands to the home directory instead of
+  silently matching nothing.
+
+### Changed
+
+- Cache Markdown parsing and text layout for assistant messages, agent summaries,
+  and expanded thinking bodies to reduce repeated rendering work.
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+- `find` and `grep` tool rows no longer repeat the tool name in their details
+  (`find find ...` / `grep grep ...`); an empty pattern shows the search path.
+- `skill_path: ~/…` loads skills again: a `~` in `skill_path` or
+  `PHI_SKILL_PATH` is expanded to the home directory, so it no longer stats a
+  directory literally named `~` and quietly finds nothing.
 
 ### Security
 
@@ -1056,7 +1085,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.28.6...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.28.7...HEAD
+[0.28.7]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.7
 [0.28.6]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.6
 [0.28.5]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.5
 [0.28.4]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.4

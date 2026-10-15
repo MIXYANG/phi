@@ -10,6 +10,8 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/agenttool"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 func TestAgentToolsSpawnWaitForcesDepthAndParent(t *testing.T) {
@@ -24,14 +26,14 @@ func TestAgentToolsSpawnWaitForcesDepthAndParent(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
-	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
+	reg := tooldef.NewRegistry(agenttool.AgentTools(agenttool.AgentDeps{
 		Manager:  mgr,
 		ParentID: func() string { return "parent-1" },
 		WorkDir:  func() string { return t.TempDir() },
 	}))
 	require.Contains(t, reg, "agent_spawn")
 	require.Contains(t, reg, "agent_wait")
-	require.NotContains(t, tools.NewRegistry(tools.DefaultTools()), "agent_spawn")
+	require.NotContains(t, tooldef.NewRegistry(tools.DefaultTools()), "agent_spawn")
 
 	spawnArgs, _ := json.Marshal(map[string]any{
 		"prompt":      "do work",
@@ -68,7 +70,7 @@ func TestAgentToolsSpawnRoleWorker(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
-	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
+	reg := tooldef.NewRegistry(agenttool.AgentTools(agenttool.AgentDeps{
 		Manager:  mgr,
 		ParentID: func() string { return "p" },
 		WorkDir:  func() string { return t.TempDir() },
@@ -112,7 +114,7 @@ func TestAgentSpawnDetailAlwaysIncludesRole(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
-	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
+	reg := tooldef.NewRegistry(agenttool.AgentTools(agenttool.AgentDeps{
 		Manager:  mgr,
 		ParentID: func() string { return "p" },
 		WorkDir:  func() string { return t.TempDir() },
@@ -138,7 +140,7 @@ func TestAgentToolsSpawnBadRole(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
-	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
+	reg := tooldef.NewRegistry(agenttool.AgentTools(agenttool.AgentDeps{
 		Manager: mgr,
 	}))
 	raw, _ := json.Marshal(map[string]any{"prompt": "x", "role": "nope"})

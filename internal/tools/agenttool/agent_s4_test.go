@@ -13,7 +13,8 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/agenttool"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 // Acceptance: dual spawn+wait, cancel, no nested agent tools, parent sees
@@ -35,7 +36,7 @@ func TestS4DualSpawnWait(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
-	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
+	reg := tooldef.NewRegistry(agenttool.AgentTools(agenttool.AgentDeps{
 		Manager:  mgr,
 		ParentID: func() string { return "parent-s4" },
 		WorkDir:  func() string { return t.TempDir() },
@@ -102,7 +103,7 @@ func TestS4Cancel(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
-	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
+	reg := tooldef.NewRegistry(agenttool.AgentTools(agenttool.AgentDeps{
 		Manager:  mgr,
 		ParentID: func() string { return "p" },
 		WorkDir:  func() string { return t.TempDir() },

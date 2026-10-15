@@ -21,6 +21,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
+	"github.com/pulseaiclub/phi/internal/util"
 )
 
 // runOptions holds parsed `phi run` flags.
@@ -33,7 +35,7 @@ type runOptions struct {
 	session      string
 	continueLast bool
 	sessionDir   string
-	builtinTools []tools.Tool
+	builtinTools []tooldef.Tool
 }
 
 // runHeadless runs one agent loop and returns an exitError (or nil) for main.
@@ -201,9 +203,9 @@ func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
 				}
 			case session.ToolData:
 				r := e.Run
-				fmt.Fprintf(os.Stderr, "tool: %s [%s] %s\n", r.Name, r.Status, truncate(r.Detail, 100))
+				fmt.Fprintf(os.Stderr, "tool: %s [%s] %s\n", r.Name, r.Status, util.TruncateBytes(r.Detail, 100, "…"))
 				if r.Error != "" {
-					fmt.Fprintln(os.Stderr, "  ", truncate(r.Error, 200))
+					fmt.Fprintln(os.Stderr, "  ", util.TruncateBytes(r.Error, 200, "…"))
 				}
 			}
 		}
@@ -225,7 +227,7 @@ func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
 	return exit
 }
 
-func selectBuiltinTools(raw string) ([]tools.Tool, error) {
+func selectBuiltinTools(raw string) ([]tooldef.Tool, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, errors.New("--tools requires at least one built-in tool name")
 	}
@@ -241,7 +243,7 @@ func selectBuiltinTools(raw string) ([]tools.Tool, error) {
 
 	defaults := tools.DefaultTools()
 	available := make([]string, 0, len(defaults))
-	selected := make([]tools.Tool, 0, len(requested))
+	selected := make([]tooldef.Tool, 0, len(requested))
 	// Keep the default schema order stable regardless of flag order; the map
 	// also collapses duplicate names without exposing duplicate definitions.
 	for _, tool := range defaults {
@@ -438,11 +440,4 @@ func classifyRunError(err error) int {
 		return ExitMaxRounds
 	}
 	return ExitError
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
 }

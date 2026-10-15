@@ -8,14 +8,14 @@ import (
 
 	cli "github.com/pulseaiclub/pli"
 
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 // toolsFlag is the parsed --tools value. set distinguishes "absent" from an
 // explicit empty list (both would otherwise look like a nil/empty slice).
 type toolsFlag struct {
 	set  bool
-	list []tools.Tool
+	list []tooldef.Tool
 }
 
 // String keeps pli help from dumping the zero value as "{false []}".

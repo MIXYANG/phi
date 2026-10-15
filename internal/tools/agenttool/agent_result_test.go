@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 )
 
 func TestParseAgentResultSummary(t *testing.T) {
@@ -16,7 +16,7 @@ func TestParseAgentResultSummary(t *testing.T) {
   "error": "",
   "summary": "## Findings\n\n- ok\n"
 }`
-	r := tools.ParseAgentResult(out)
+	r := agenttool.ParseAgentResult(out)
 	require.True(t, r.OK)
 	require.Equal(t, "job_1", r.JobID)
 	require.Equal(t, "completed", r.Status)
@@ -24,11 +24,11 @@ func TestParseAgentResultSummary(t *testing.T) {
 }
 
 func TestParseAgentResultRunningNoSummary(t *testing.T) {
-	r := tools.ParseAgentResult(`{"job_id":"j","status":"running"}`)
+	r := agenttool.ParseAgentResult(`{"job_id":"j","status":"running"}`)
 	require.True(t, r.OK)
 	require.Empty(t, r.RenderableSummary())
 }
 
 func TestParseAgentResultRejectsPlain(t *testing.T) {
-	assert.False(t, tools.ParseAgentResult("hello").OK, "expected reject")
+	assert.False(t, agenttool.ParseAgentResult("hello").OK, "expected reject")
 }

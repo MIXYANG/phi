@@ -21,6 +21,9 @@ import (
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/compaction"
 	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/agenttool"
+	"github.com/pulseaiclub/phi/internal/tools/mcptool"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 // ErrMaxRounds is returned (wrapped) by Loop when the model exceeds the
@@ -50,7 +53,7 @@ type Engine struct {
 	continueAsk  ContinueFunc
 	jobs         *job.Manager
 	extensions   *extension.Runner // nil = disabled; all methods are nil-safe no-ops
-	baseTools    []tools.Tool      // nil = DefaultTools; preserved across rebind
+	baseTools    []tooldef.Tool    // nil = DefaultTools; preserved across rebind
 	omitExtTools bool              // sub-agents: emit events but skip RegisterTool merge
 	mcp          *mcp.Pool
 
@@ -87,16 +90,16 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 	engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
 	engine.extensions.SetMeta(engine.SessionID(), engine.SessionCwd())
 	toolList := engine.buildToolList(engine.baseTools)
-	engine.client = llmclient.NewClient(model, engine.hooks, tools.Definitions(toolList), engine.systemPrompt())
-	engine.bindExecutor(tools.NewRegistry(toolList))
+	engine.client = llmclient.NewClient(model, engine.hooks, tooldef.Definitions(toolList), engine.systemPrompt())
+	engine.bindExecutor(tooldef.NewRegistry(toolList))
 	return engine, nil
 }
 
-func (engine *Engine) buildToolList(base []tools.Tool) []tools.Tool {
+func (engine *Engine) buildToolList(base []tooldef.Tool) []tooldef.Tool {
 	out := engine.buildCoreTools(base)
 	if !engine.omitExtTools {
 		if extTools := engine.extensions.ExtensionTools(); len(extTools) > 0 {
-			merged := make([]tools.Tool, 0, len(out)+len(extTools))
+			merged := make([]tooldef.Tool, 0, len(out)+len(extTools))
 			merged = append(merged, out...)
 			merged = append(merged, extTools...)
 			return merged
@@ -106,15 +109,15 @@ func (engine *Engine) buildToolList(base []tools.Tool) []tools.Tool {
 }
 
 // buildCoreTools returns builtin (+ MCP + agent_*) tools without extension RegisterTool.
-func (engine *Engine) buildCoreTools(base []tools.Tool) []tools.Tool {
+func (engine *Engine) buildCoreTools(base []tooldef.Tool) []tooldef.Tool {
 	if base == nil {
 		base = tools.DefaultTools()
 	}
 	out := base
 	if engine.mcp != nil {
-		mcpTools := tools.MCPTools(engine.mcp)
+		mcpTools := mcptool.Tools(engine.mcp)
 		if len(mcpTools) > 0 {
-			merged := make([]tools.Tool, 0, len(out)+len(mcpTools))
+			merged := make([]tooldef.Tool, 0, len(out)+len(mcpTools))
 			merged = append(merged, out...)
 			merged = append(merged, mcpTools...)
 			out = merged
@@ -123,12 +126,12 @@ func (engine *Engine) buildCoreTools(base []tools.Tool) []tools.Tool {
 	if engine.jobs == nil {
 		return out
 	}
-	agentTools := tools.AgentTools(tools.AgentDeps{
+	agentTools := agenttool.AgentTools(agenttool.AgentDeps{
 		Manager:  engine.jobs,
 		ParentID: engine.SessionID,
 		WorkDir:  engine.SessionCwd,
 	})
-	merged := make([]tools.Tool, 0, len(out)+len(agentTools))
+	merged := make([]tooldef.Tool, 0, len(out)+len(agentTools))
 	merged = append(merged, out...)
 	merged = append(merged, agentTools...)
 	return merged
@@ -176,10 +179,10 @@ func (engine *Engine) rebindTools() {
 	engine.client = llmclient.NewClient(
 		engine.modelCfg,
 		engine.hooks,
-		tools.Definitions(toolList),
+		tooldef.Definitions(toolList),
 		engine.systemPrompt(),
 	)
-	engine.bindExecutor(tools.NewRegistry(toolList))
+	engine.bindExecutor(tooldef.NewRegistry(toolList))
 }
 
 func (engine *Engine) systemPrompt() string {
@@ -195,14 +198,14 @@ func (engine *Engine) systemPrompt() string {
 	// its own workdir must load that workspace's instructions.
 	return prompt.Build(
 		engine.SessionCwd(),
-		engine.modelCfg.SkillPath,
+		engine.modelCfg.SkillPaths,
 		engine.jobs != nil,
 		maxConcurrent,
 		mcpServers,
 	)
 }
 
-func (engine *Engine) bindExecutor(registry tools.Registry) {
+func (engine *Engine) bindExecutor(registry tooldef.Registry) {
 	engine.executor = NewExecutor(registry, engine.gate, engine.ask, engine.extensions)
 	engine.executor.SetMeta(engine.SessionID(), engine.SessionCwd())
 }
@@ -308,7 +311,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		if handled {
 			return
 		}
-		if instr := pendingSkillsInstruction(engine.modelCfg.SkillPath, opts.PendingSkills); instr != "" {
+		if instr := pendingSkillsInstruction(engine.modelCfg.SkillPaths, opts.PendingSkills); instr != "" {
 			if content == "" {
 				content = instr
 			} else {
@@ -639,22 +642,18 @@ func emitMessage(
 
 // pendingSkillsInstruction tells the model to read SKILL.md files for the
 // selected skills (reuse the read tool, no dedicated skill tool).
-func pendingSkillsInstruction(skillPath string, names []string) string {
+func pendingSkillsInstruction(skillPaths, names []string) string {
 	if len(names) == 0 {
 		return ""
 	}
-	list, err := skills.LoadSkills(skillPath)
+	list := skills.LoadAll(skillPaths)
 	targets := make([]string, 0, len(names))
-	if err == nil {
-		for _, name := range names {
-			if s := skills.Find(list, name); s != nil && s.SkillFilePath != "" {
-				targets = append(targets, s.SkillFilePath)
-				continue
-			}
-			targets = append(targets, name)
+	for _, name := range names {
+		if s := skills.Find(list, name); s != nil && s.SkillFilePath != "" {
+			targets = append(targets, s.SkillFilePath)
+			continue
 		}
-	} else {
-		targets = append(targets, names...)
+		targets = append(targets, name)
 	}
 	return fmt.Sprintf(
 		"You MUST read these skill files first with the read tool and follow them: %s. Do this immediately before responding.",

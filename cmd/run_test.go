@@ -24,6 +24,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 func TestRunOptionsFromFlags(t *testing.T) {
@@ -116,7 +117,7 @@ func TestRunOptionsLeavesBuiltinToolsUnsetByDefault(t *testing.T) {
 	assert.Nil(t, opts.builtinTools)
 }
 
-func toolNames(list []tools.Tool) []string {
+func toolNames(list []tooldef.Tool) []string {
 	names := make([]string, 0, len(list))
 	for _, tool := range list {
 		names = append(names, tool.Definition.Name)
