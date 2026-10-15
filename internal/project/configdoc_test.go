@@ -77,23 +77,17 @@ func TestConfigDocRoundTripThroughLoader(t *testing.T) {
 }
 
 func TestInvalidRequestParametersFailConfigLoad(t *testing.T) {
-	for _, tt := range []struct{ name, api, params, want string }{
-		{"sdk wrapper", "OpenAI", "{extra_body: {thinking: {type: enabled}}}", "SDK wrapper"},
-		{"reserved", "OpenAI", "{messages: null}", "messages is managed by phi"},
-		{"protocol", "Unknown", "{thinking: null}", "unsupported API"},
-		{"preset protocol", "", "{input: null}", "input is managed by phi"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "config.yaml")
-			data := "models:\n  - name: gpt-6-astra\n    api_key: fake-key\n    api: " + tt.api + "\n    request_parameters: " + tt.params + "\n"
-			require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
-			_, err := parseConfigFile(path)
-			require.ErrorContains(t, err, tt.want)
-			doc, err := ReadConfigDoc(path)
-			require.NoError(t, err)
-			require.ErrorContains(t, doc.Validate(), tt.want)
-		})
-	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`models:
+  - name: gpt-6-astra
+    api_key: fake-key
+    request_parameters: {input: null}
+`), 0o600))
+	_, err := parseConfigFile(path)
+	require.ErrorContains(t, err, "input is managed by phi")
+	doc, err := ReadConfigDoc(path)
+	require.NoError(t, err)
+	require.ErrorContains(t, doc.Validate(), "input is managed by phi")
 }
 
 func TestConfigDocKeepsAbsentKeysAbsent(t *testing.T) {

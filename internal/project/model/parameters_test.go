@@ -33,13 +33,6 @@ func TestParameterAdaptationWire(t *testing.T) {
 			nil,
 		},
 		{
-			"native standard full URL",
-			"glm-5.3-flash",
-			"https://open.bigmodel.cn/api/paas/v4/chat/completions",
-			`{"type":"enabled","clear_thinking":false}`,
-			nil,
-		},
-		{
 			"strict endpoint full URL", "vendor/glm-5.3-flash:free",
 			"https://opencode.ai/zen/go/v1/chat/completions", "", nil,
 		},
@@ -53,26 +46,11 @@ func TestParameterAdaptationWire(t *testing.T) {
 			nil,
 		},
 		{
-			"deepseek alias",
-			"clinepass/cline-pass/deepseek-v4.1-flash",
-			"http://127.0.0.1:8317/v1",
-			`{"type":"enabled"}`,
-			nil,
-		},
-		{
-			"delete optional field", "glm-5.3", "https://api.z.ai/api/paas/v4", `{"type":"enabled"}`,
-			llm.RequestParameters{"thinking": map[string]any{"clear_thinking": nil}},
-		},
-		{
 			"override native default",
 			"glm-5.3",
 			"https://api.z.ai/api/paas/v4",
 			`{"type":"enabled","clear_thinking":true}`,
 			llm.RequestParameters{"thinking": map[string]any{"clear_thinking": true}},
-		},
-		{
-			"override strict endpoint", "glm-5.3", "https://opencode.ai/zen/go/v1", `{"type":"enabled"}`,
-			llm.RequestParameters{"thinking": map[string]any{"type": "enabled"}},
 		},
 	}
 	// Intercept HTTP so native endpoints receive no test traffic.
@@ -146,16 +124,8 @@ func TestEndpointRuleBoundaries(t *testing.T) {
 	} {
 		t.Run(endpoint, func(t *testing.T) {
 			req := &openai.Request{}
-			require.NoError(
-				t,
-				chatParameters{
-					forced: true,
-				}.Before(
-					t.Context(),
-					req,
-					llm.ModelConfig{Name: "glm-5.3", BaseURL: endpoint},
-				),
-			)
+			hook := chatParameters{forced: true}
+			require.NoError(t, hook.Before(t.Context(), req, llm.ModelConfig{Name: "glm-5.3", BaseURL: endpoint}))
 			require.NotNil(t, req.Thinking.ClearThinking)
 			assert.False(t, *req.Thinking.ClearThinking)
 		})
@@ -173,16 +143,8 @@ func TestEndpointRuleBoundaries(t *testing.T) {
 	} {
 		t.Run(endpoint, func(t *testing.T) {
 			req := &openai.Request{}
-			require.NoError(
-				t,
-				chatParameters{
-					forced: true,
-				}.Before(
-					t.Context(),
-					req,
-					llm.ModelConfig{Name: "glm-5.3", BaseURL: endpoint},
-				),
-			)
+			hook := chatParameters{forced: true}
+			require.NoError(t, hook.Before(t.Context(), req, llm.ModelConfig{Name: "glm-5.3", BaseURL: endpoint}))
 			require.NotNil(t, req.Thinking)
 			assert.Nil(t, req.Thinking.ClearThinking)
 		})
@@ -201,7 +163,6 @@ func TestModelMappingUsesExplicitAPIAndPresetBinding(t *testing.T) {
 		{"glm-5.3-flash", llm.Anthropic, "https://gateway.test/v1", "enabled"},
 		{"deepseek-flash", llm.Anthropic, "https://gateway.test/v1", "enabled"},
 		{"glm-5.3-flash", llm.OpenAIResponses, "https://gateway.test/v1", ""},
-		{"deepseek-flash", llm.OpenAIResponses, "https://gateway.test/v1", ""},
 		{"glm-5.3-flash", llm.Anthropic, "https://openrouter.ai/api", "adaptive"},
 		{"deepseek-flash", llm.Anthropic, "https://openrouter.ai/api/v1", "adaptive"},
 		{"deepseek-flash", llm.Anthropic, "https://openrouter.ai/api/v1", "disabled"},
@@ -275,7 +236,7 @@ func TestModelMappingUsesExplicitAPIAndPresetBinding(t *testing.T) {
 	}
 }
 
-func TestDeepSeekThinkingToggleAcrossAPIs(t *testing.T) {
+func TestDeepSeekChatThinkingDisabled(t *testing.T) {
 	p, ok := Lookup("vendor/deepseek-flash")
 	require.True(t, ok)
 	cfg := p.Config

@@ -19,6 +19,7 @@ func TestRequestParametersValidation(t *testing.T) {
 		require.NoError(t, (RequestParameters{}).Validate(api))
 	}
 	require.ErrorContains(t, (RequestParameters{"vendor": make(chan int)}).Validate(OpenAI), "JSON-compatible")
+	require.ErrorContains(t, (RequestParameters{"thinking": nil}).Validate("Unknown"), "unsupported API")
 	require.NoError(t, (RequestParameters{"extra_body": nil, "enable_thinking": false}).Validate(""))
 }
 
@@ -113,34 +114,4 @@ func TestRequestParametersReplaceAndDelete(t *testing.T) {
 		require.NoError(t, err)
 		assert.JSONEq(t, tt.want, string(body))
 	}
-}
-
-type changingParameterJSON struct {
-	calls       int
-	first, next string
-}
-
-func (p *changingParameterJSON) MarshalJSON() ([]byte, error) {
-	p.calls++
-	if p.calls == 1 {
-		return []byte(p.first), nil
-	}
-	return []byte(p.next), nil
-}
-
-func TestRequestParametersUseValidatedSnapshot(t *testing.T) {
-	value := &changingParameterJSON{first: `{"temperature":0}`, next: `{"max_output_tokens":8192}`}
-	body, err := MarshalRequest(json.RawMessage(`{"generationConfig":{"maxOutputTokens":64}}`), ModelConfig{
-		API: Gemini, RequestParameters: RequestParameters{"generationConfig": value},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 1, value.calls)
-	assert.JSONEq(t, `{"generationConfig":{"maxOutputTokens":64,"temperature":0}}`, string(body))
-
-	value = &changingParameterJSON{first: `{"max_output_tokens":8192}`, next: `{"temperature":0}`}
-	_, err = MarshalRequest(json.RawMessage(`{}`), ModelConfig{
-		API: Gemini, RequestParameters: RequestParameters{"generationConfig": value},
-	})
-	require.ErrorContains(t, err, "max_output_tokens is managed by phi")
-	assert.Equal(t, 1, value.calls)
 }

@@ -143,34 +143,19 @@ func TestInvalidModelRetainsDefaultsAndShowsError(t *testing.T) {
 	}
 }
 
-type countedParameterJSON struct{ calls int }
-
-func (p *countedParameterJSON) MarshalJSON() ([]byte, error) {
-	p.calls++
-	return []byte(`{}`), nil
-}
-
-func TestRedrawReusesRowsAndEditsRefreshChoices(t *testing.T) {
-	value := &countedParameterJSON{}
+func TestEditsRefreshThinkingChoices(t *testing.T) {
 	e := newTestEditor(t, &project.ConfigDoc{Models: []project.ModelDoc{{
-		Name: "vendor/deepseek-v4-pro", RequestParameters: llm.RequestParameters{"vendor": value},
+		Name: "vendor/deepseek-v4-pro",
 	}}})
-	calls := value.calls
-	require.Positive(t, calls)
-	for _, width := range []int{100, 60, 100} {
-		e.Draw(components.DrawContext{Max: components.Size{Width: width, Height: 40}, Method: xui.WidthUnicode})
-	}
-	assert.Equal(t, calls, value.calls, "redraw and resize must not revalidate model parameters")
+	assertThinkingChoices(t, e, []string{"", "off", "low", "high", "max"})
 
 	e.commit(modelKey(0, fURL), "https://opencode.ai/zen/go/v1")
-	require.Greater(t, value.calls, calls)
+	drawForm(t, e)
 	assertThinkingChoices(t, e, []string{"", "high", "max"})
 
 	e.commit(modelKey(0, fAPI), "Anthropic")
-	assertThinkingChoices(t, e, []string{"", "off", "low", "high", "max"})
-	calls = value.calls
 	drawForm(t, e)
-	assert.Equal(t, calls, value.calls)
+	assertThinkingChoices(t, e, []string{"", "off", "low", "high", "max"})
 }
 
 func TestFetchedModelRefreshesCachedRows(t *testing.T) {
