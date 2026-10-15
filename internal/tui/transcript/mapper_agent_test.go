@@ -11,7 +11,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
@@ -147,7 +147,7 @@ func TestMapperAgentWaitSummaryOnly(t *testing.T) {
 // label, not the id, while the wait is still blocking.
 func TestMapperAgentWaitRowShowsJobLabel(t *testing.T) {
 	store := transcript.NewSubagentStore()
-	store.ApplyResult("call_spawn", tools.ParseAgentResult(`{
+	store.ApplyResult("call_spawn", agenttool.ParseAgentResult(`{
 		"job_id":"job_w","status":"running","label":"explore: find auth"
 	}`))
 

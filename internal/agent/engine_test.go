@@ -15,7 +15,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 // compactionSeed is one seeded turn's content, about 12k estimated tokens (4
@@ -77,16 +77,16 @@ func fakeToolSequenceServer(finalAfter int) (*httptest.Server, *atomic.Int32) {
 	return server, &requests
 }
 
-func countingTool(runs *atomic.Int32) tools.Tool {
-	return tools.Tool{
+func countingTool(runs *atomic.Int32) tooldef.Tool {
+	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "count",
 			Description: "count tool executions",
 			Params:      &llm.FunctionParameters{Type: "object"},
 		},
-		Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+		Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 			runs.Add(1)
-			return tools.Result{Content: "ok"}, nil
+			return tooldef.Result{Content: "ok"}, nil
 		},
 	}
 }
@@ -99,7 +99,7 @@ func newRoundTestEngine(t *testing.T, serverURL string, runs *atomic.Int32, maxR
 		llm.ModelConfig{Name: "fake", BaseURL: serverURL, APIKey: "x"},
 		sess,
 		WithGate(permission.AllowAll{}),
-		WithTools([]tools.Tool{countingTool(runs)}),
+		WithTools([]tooldef.Tool{countingTool(runs)}),
 		WithMaxRounds(maxRounds),
 	)
 	require.NoError(t, err)
@@ -270,7 +270,7 @@ func TestLoopOverflowCompactsAndRetries(t *testing.T) {
 		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000},
 		sess,
 		WithGate(permission.AllowAll{}),
-		WithTools([]tools.Tool{}),
+		WithTools([]tooldef.Tool{}),
 	)
 	require.NoError(t, err)
 
@@ -331,7 +331,7 @@ func TestLoopOverflowFailsClosedAfterOneRetry(t *testing.T) {
 		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000},
 		sess,
 		WithGate(permission.AllowAll{}),
-		WithTools([]tools.Tool{}),
+		WithTools([]tooldef.Tool{}),
 	)
 	require.NoError(t, err)
 
@@ -388,7 +388,7 @@ func TestLoopOverflowRejectsCappedSummary(t *testing.T) {
 		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000},
 		sess,
 		WithGate(permission.AllowAll{}),
-		WithTools([]tools.Tool{}),
+		WithTools([]tooldef.Tool{}),
 	)
 	require.NoError(t, err)
 
@@ -455,7 +455,7 @@ func TestLoopOverflowRejectsBlankSummary(t *testing.T) {
 		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 200_000},
 		sess,
 		WithGate(permission.AllowAll{}),
-		WithTools([]tools.Tool{}),
+		WithTools([]tooldef.Tool{}),
 	)
 	require.NoError(t, err)
 
@@ -497,7 +497,7 @@ func TestLoopNonOverflowErrorDoesNotCompact(t *testing.T) {
 		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"},
 		sess,
 		WithGate(permission.AllowAll{}),
-		WithTools([]tools.Tool{}),
+		WithTools([]tooldef.Tool{}),
 	)
 	require.NoError(t, err)
 
@@ -560,15 +560,15 @@ func sentContent(body map[string]any) string {
 
 // bulkyTool answers with a result big enough to push the estimated context past
 // the threshold on its own.
-func bulkyTool() tools.Tool {
-	return tools.Tool{
+func bulkyTool() tooldef.Tool {
+	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "count",
 			Description: "answer with a large payload",
 			Params:      &llm.FunctionParameters{Type: "object"},
 		},
-		Run: func(context.Context, json.RawMessage) (tools.Result, error) {
-			return tools.Result{Content: strings.Repeat("y", 12000)}, nil
+		Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
+			return tooldef.Result{Content: strings.Repeat("y", 12000)}, nil
 		},
 	}
 }
@@ -598,7 +598,7 @@ func TestLoopCompactsMidTurnBeforeNextRequest(t *testing.T) {
 		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 40_000},
 		sess,
 		WithGate(permission.AllowAll{}),
-		WithTools([]tools.Tool{bulkyTool()}),
+		WithTools([]tooldef.Tool{bulkyTool()}),
 	)
 	require.NoError(t, err)
 

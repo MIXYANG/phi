@@ -12,7 +12,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/extension/loader"
 	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 // handBuiltFiber returns a fiber whose API is populated by hand.
@@ -117,7 +117,7 @@ func TestModelToolsAndActiveFilter(t *testing.T) {
 	r.mu.Lock()
 	r.fibers["ext"] = f
 	r.mu.Unlock()
-	r.SetBaseTools([]tools.Tool{{Definition: llm.ToolDefinition{Name: "builtin-tool"}}})
+	r.SetBaseTools([]tooldef.Tool{{Definition: llm.ToolDefinition{Name: "builtin-tool"}}})
 
 	m := r.snapshot()
 	require.Len(t, m.tools, 2)
@@ -129,7 +129,7 @@ func TestModelToolsAndActiveFilter(t *testing.T) {
 	assert.Equal(t, "ext-tool", r.snapshot().activeTools[0].Name)
 
 	// SetBaseTools copies: the caller's slice is not retained.
-	base := []tools.Tool{{Definition: llm.ToolDefinition{Name: "mutated"}}}
+	base := []tooldef.Tool{{Definition: llm.ToolDefinition{Name: "mutated"}}}
 	r.SetBaseTools(base)
 	base[0].Definition.Name = "changed-after-the-fact"
 	assert.Equal(t, "mutated", r.snapshot().tools[0].Name)

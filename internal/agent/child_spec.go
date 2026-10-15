@@ -4,18 +4,19 @@ import (
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 // ChildSpec is the capability profile for a sub-agent role.
 type ChildSpec struct {
 	Role  job.Role
-	Tools []tools.Tool
+	Tools []tooldef.Tool
 	Mode  permission.Mode // used when EngineRunner.Gate is nil
 	Hint  string          // appended to the child prompt
 }
 
 // ChildTools returns the default (explore) tool set.
-func ChildTools() []tools.Tool {
+func ChildTools() []tooldef.Tool {
 	return SpecForRole(job.RoleExplore).Tools
 }
 

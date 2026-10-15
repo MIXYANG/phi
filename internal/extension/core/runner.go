@@ -16,7 +16,7 @@ import (
 	"github.com/pulseaiclub/phi/ext/go/pxb"
 	"github.com/pulseaiclub/phi/internal/debuglog"
 	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
@@ -61,7 +61,7 @@ type Runner struct {
 	hasUI   bool
 	logDir  string
 
-	baseTools   []tools.Tool
+	baseTools   []tooldef.Tool
 	activeNames map[string]bool // nil = all active
 	host        ext.HostOpts
 
@@ -296,29 +296,29 @@ func (r *Runner) SetMeta(sessionID, cwd string) {
 }
 
 // SetBaseTools records built-in tools for GetAllTools / active filtering.
-func (r *Runner) SetBaseTools(base []tools.Tool) {
+func (r *Runner) SetBaseTools(base []tooldef.Tool) {
 	if r == nil {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.baseTools = append([]tools.Tool(nil), base...)
+	r.baseTools = append([]tooldef.Tool(nil), base...)
 	r.invalidateLocked()
 }
 
-// ExtensionTools converts registered extension tools to tools.Tool.
+// ExtensionTools converts registered extension tools to tooldef.Tool.
 // The result is cached and must be treated as read-only.
-func (r *Runner) ExtensionTools() []tools.Tool {
+func (r *Runner) ExtensionTools() []tooldef.Tool {
 	if r == nil {
 		return nil
 	}
 	return r.snapshot().extTools
 }
 
-func toolFromDef(def ext.Tool) tools.Tool {
+func toolFromDef(def ext.Tool) tooldef.Tool {
 	params := schemaFromMap(def.Parameters)
 	exec := def.Execute
-	return tools.Tool{
+	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        def.Name,
 			Description: def.Description,
@@ -326,16 +326,16 @@ func toolFromDef(def ext.Tool) tools.Tool {
 			Readable:    def.Readable,
 		},
 		DetailFromArgs: def.DetailFromArgs,
-		Run: func(ctx context.Context, input json.RawMessage) (tools.Result, error) {
+		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 			res, err := exec(ctx, input)
 			if err != nil {
-				return tools.Result{}, err
+				return tooldef.Result{}, err
 			}
 			out := res.Output
 			if out == "" {
 				out = res.Content
 			}
-			return tools.Result{Content: res.Content, Detail: res.Detail, Output: out, Expanded: res.Expanded}, nil
+			return tooldef.Result{Content: res.Content, Detail: res.Detail, Output: out, Expanded: res.Expanded}, nil
 		},
 	}
 }

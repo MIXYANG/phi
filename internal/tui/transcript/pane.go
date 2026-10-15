@@ -14,7 +14,7 @@ import (
 	msglist "github.com/pulseaiclub/phi/internal/components/transcript"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
@@ -419,7 +419,7 @@ func (t *TranscriptPane) applyAgentToolData(td session.ToolData) {
 	default:
 		return
 	}
-	parsed := tools.ParseAgentResult(td.Run.Output)
+	parsed := agenttool.ParseAgentResult(td.Run.Output)
 	if !parsed.OK {
 		return
 	}

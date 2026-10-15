@@ -21,6 +21,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
@@ -34,7 +35,7 @@ type runOptions struct {
 	session      string
 	continueLast bool
 	sessionDir   string
-	builtinTools []tools.Tool
+	builtinTools []tooldef.Tool
 }
 
 // runHeadless runs one agent loop and returns an exitError (or nil) for main.
@@ -226,7 +227,7 @@ func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
 	return exit
 }
 
-func selectBuiltinTools(raw string) ([]tools.Tool, error) {
+func selectBuiltinTools(raw string) ([]tooldef.Tool, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, errors.New("--tools requires at least one built-in tool name")
 	}
@@ -242,7 +243,7 @@ func selectBuiltinTools(raw string) ([]tools.Tool, error) {
 
 	defaults := tools.DefaultTools()
 	available := make([]string, 0, len(defaults))
-	selected := make([]tools.Tool, 0, len(requested))
+	selected := make([]tooldef.Tool, 0, len(requested))
 	// Keep the default schema order stable regardless of flag order; the map
 	// also collapses duplicate names without exposing duplicate definitions.
 	for _, tool := range defaults {

@@ -12,7 +12,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/shellhist"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/bashtool"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
@@ -118,7 +118,7 @@ func (b *BashRunner) run(ctx context.Context, id string, entry shellhist.Entry, 
 		}})
 	})
 
-	result, err := tools.ExecShell(ctx, command, tools.ShellExecOptions{
+	result, err := bashtool.ExecShell(ctx, command, bashtool.ShellExecOptions{
 		OnChunk: liveOutput.Append,
 	})
 	liveOutput.Close()
@@ -215,7 +215,7 @@ func (b *BashRunner) SyncBorder(text string) {
 // per interval. A skipped update always schedules one trailing publication.
 type bashLiveOutput struct {
 	mu          sync.Mutex
-	tail        *tools.BashOutputTail
+	tail        *bashtool.BashOutputTail
 	interval    time.Duration
 	lastPublish time.Time
 	timer       *time.Timer
@@ -225,7 +225,7 @@ type bashLiveOutput struct {
 
 func newBashLiveOutput(interval time.Duration, publish func(output string)) *bashLiveOutput {
 	return &bashLiveOutput{
-		tail:     tools.NewBashOutputTail(tools.BashMaxOutputLines, tools.BashMaxOutputBytes),
+		tail:     bashtool.NewBashOutputTail(bashtool.BashMaxOutputLines, bashtool.BashMaxOutputBytes),
 		interval: interval,
 		publish:  publish,
 	}

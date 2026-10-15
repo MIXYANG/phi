@@ -7,7 +7,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
@@ -46,7 +46,7 @@ func TestSubagentStoreProgressAndResult(t *testing.T) {
 	byJob := s.ChildrenByJob("job1")
 	require.Len(t, byJob, 2)
 
-	s.ApplyResult("parent1", tools.ParseAgentResult(`{
+	s.ApplyResult("parent1", agenttool.ParseAgentResult(`{
 		"job_id":"job1","status":"completed","label":"explore: find auth","summary":"## Ok"
 	}`))
 	// Summary / label are stored; Children unchanged.

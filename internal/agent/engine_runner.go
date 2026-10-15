@@ -13,7 +13,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project/model"
 	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 // EngineRunner runs a child [Engine.Loop] as a [job.Runner].
@@ -32,7 +32,7 @@ type EngineRunner struct {
 	Model        llm.ModelConfig
 	ModelFn      func(role job.Role) llm.ModelConfig // if set, preferred over Model
 	Gate         permission.Gate                     // nil → SpecForRole(job.Role).Mode on WorkDir
-	Tools        []tools.Tool                        // nil → SpecForRole(job.Role).Tools
+	Tools        []tooldef.Tool                      // nil → SpecForRole(job.Role).Tools
 	MaxRounds    int                                 // <=0 → model budget or Engine default
 	Extensions   *extension.Runner
 	ExtensionsFn func() *extension.Runner

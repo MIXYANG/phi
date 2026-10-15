@@ -16,7 +16,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 func loadExt(t *testing.T, mainGo string) *extension.Runner {
@@ -42,12 +42,12 @@ func (g fixedGate) Check(context.Context, permission.Request) (permission.Decisi
 
 func TestExecutorDenyDoesNotRunHandler(t *testing.T) {
 	var ran atomic.Int32
-	reg := tools.Registry{
+	reg := tooldef.Registry{
 		"bash": {
 			Definition: llm.ToolDefinition{Name: "bash"},
-			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 				ran.Add(1)
-				return tools.Result{Content: "ok"}, nil
+				return tooldef.Result{Content: "ok"}, nil
 			},
 		},
 	}
@@ -68,12 +68,12 @@ func TestExecutorDenyDoesNotRunHandler(t *testing.T) {
 
 func TestExecutorAskFalseRejects(t *testing.T) {
 	var ran atomic.Int32
-	reg := tools.Registry{
+	reg := tooldef.Registry{
 		"bash": {
 			Definition: llm.ToolDefinition{Name: "bash"},
-			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 				ran.Add(1)
-				return tools.Result{Content: "ok"}, nil
+				return tooldef.Result{Content: "ok"}, nil
 			},
 		},
 	}
@@ -91,11 +91,11 @@ func TestExecutorAskFalseRejects(t *testing.T) {
 }
 
 func TestExecutorEmitsToolName(t *testing.T) {
-	reg := tools.Registry{
+	reg := tooldef.Registry{
 		"bash": {
 			Definition: llm.ToolDefinition{Name: "bash"},
-			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
-				return tools.Result{Content: "ok"}, nil
+			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
+				return tooldef.Result{Content: "ok"}, nil
 			},
 		},
 	}
@@ -118,12 +118,12 @@ func TestExecutorAskNilRejectsHeadless(t *testing.T) {
 	// Headless mode wires Ask=nil: an Ask decision must reject without
 	// running the handler (Ask≡Deny), even if the gate did not fold it.
 	var ran atomic.Int32
-	reg := tools.Registry{
+	reg := tooldef.Registry{
 		"bash": {
 			Definition: llm.ToolDefinition{Name: "bash"},
-			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 				ran.Add(1)
-				return tools.Result{Content: "ok"}, nil
+				return tooldef.Result{Content: "ok"}, nil
 			},
 		},
 	}
@@ -144,12 +144,12 @@ func TestExecutorAskNilRejectsHeadless(t *testing.T) {
 
 func TestExecutorAskTrueRuns(t *testing.T) {
 	var ran atomic.Int32
-	reg := tools.Registry{
+	reg := tooldef.Registry{
 		"bash": {
 			Definition: llm.ToolDefinition{Name: "bash"},
-			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 				ran.Add(1)
-				return tools.Result{Content: "ran"}, nil
+				return tooldef.Result{Content: "ran"}, nil
 			},
 		},
 	}
@@ -167,11 +167,11 @@ func TestExecutorAskTrueRuns(t *testing.T) {
 }
 
 func TestExecutorAskFeedbackMessage(t *testing.T) {
-	reg := tools.Registry{
+	reg := tooldef.Registry{
 		"bash": {
 			Definition: llm.ToolDefinition{Name: "bash"},
-			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
-				return tools.Result{Content: "ok"}, nil
+			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
+				return tooldef.Result{Content: "ok"}, nil
 			},
 		},
 	}
@@ -188,11 +188,11 @@ func TestExecutorAskFeedbackMessage(t *testing.T) {
 }
 
 func TestExecutorNilAskOnAskDenies(t *testing.T) {
-	reg := tools.Registry{
+	reg := tooldef.Registry{
 		"bash": {
 			Definition: llm.ToolDefinition{Name: "bash"},
-			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
-				return tools.Result{Content: "ok"}, nil
+			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
+				return tooldef.Result{Content: "ok"}, nil
 			},
 		},
 	}
@@ -208,12 +208,12 @@ func TestExecutorNilAskOnAskDenies(t *testing.T) {
 func TestExecutorExtDenySkipsGateAsk(t *testing.T) {
 	var ran atomic.Int32
 	var askCalled atomic.Int32
-	reg := tools.Registry{
+	reg := tooldef.Registry{
 		"bash": {
 			Definition: llm.ToolDefinition{Name: "bash"},
-			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 				ran.Add(1)
-				return tools.Result{Content: "ok"}, nil
+				return tooldef.Result{Content: "ok"}, nil
 			},
 		},
 	}
@@ -255,7 +255,7 @@ func main() {
 
 func TestExecutorExtModifySeenByGateAndRun(t *testing.T) {
 	var sawArgs string
-	reg := tools.Registry{
+	reg := tooldef.Registry{
 		"bash": {
 			Definition: llm.ToolDefinition{Name: "bash"},
 			DetailFromArgs: func(input json.RawMessage) string {
@@ -265,9 +265,9 @@ func TestExecutorExtModifySeenByGateAndRun(t *testing.T) {
 				_ = json.Unmarshal(input, &in)
 				return in.Command
 			},
-			Run: func(_ context.Context, input json.RawMessage) (tools.Result, error) {
+			Run: func(_ context.Context, input json.RawMessage) (tooldef.Result, error) {
 				sawArgs = string(input)
-				return tools.Result{Content: "ran", Output: "ran"}, nil
+				return tooldef.Result{Content: "ran", Output: "ran"}, nil
 			},
 		},
 	}
@@ -305,11 +305,11 @@ func main() {
 }
 
 func TestExecutorExtPostContextOnModelOnly(t *testing.T) {
-	reg := tools.Registry{
+	reg := tooldef.Registry{
 		"bash": {
 			Definition: llm.ToolDefinition{Name: "bash"},
-			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
-				return tools.Result{Content: "ok", Output: "ok"}, nil
+			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
+				return tooldef.Result{Content: "ok", Output: "ok"}, nil
 			},
 		},
 	}
@@ -362,11 +362,11 @@ func (g *recordingGate) Check(_ context.Context, req permission.Request) (permis
 
 func TestExecutorToolErrorKeepsOutputEmptyForUI(t *testing.T) {
 	const errMsg = "2 lines have changed since last read"
-	reg := tools.Registry{
+	reg := tooldef.Registry{
 		"edit": {
 			Definition: llm.ToolDefinition{Name: "edit"},
-			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
-				return tools.Result{}, &staticError{msg: errMsg}
+			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
+				return tooldef.Result{}, &staticError{msg: errMsg}
 			},
 		},
 	}
@@ -402,21 +402,21 @@ func (e *staticError) Error() string { return e.msg }
 func TestExecutorRunsReadableBatchConcurrently(t *testing.T) {
 	entered := make(chan string, 2)
 	release := make(chan struct{})
-	reg := tools.Registry{
+	reg := tooldef.Registry{
 		"readA": {
 			Definition: llm.ToolDefinition{Name: "readA", Readable: true},
-			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 				entered <- "readA"
 				<-release
-				return tools.Result{Content: "A"}, nil
+				return tooldef.Result{Content: "A"}, nil
 			},
 		},
 		"readB": {
 			Definition: llm.ToolDefinition{Name: "readB", Readable: true},
-			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 				entered <- "readB"
 				<-release
-				return tools.Result{Content: "B"}, nil
+				return tooldef.Result{Content: "B"}, nil
 			},
 		},
 	}
@@ -450,21 +450,21 @@ func TestExecutorRunsReadableBatchConcurrently(t *testing.T) {
 func TestExecutorMixedBatchStaysSequential(t *testing.T) {
 	entered := make(chan string, 2)
 	release := make(chan struct{})
-	reg := tools.Registry{
+	reg := tooldef.Registry{
 		"readA": {
 			Definition: llm.ToolDefinition{Name: "readA", Readable: true},
-			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 				entered <- "readA"
 				<-release
-				return tools.Result{Content: "A"}, nil
+				return tooldef.Result{Content: "A"}, nil
 			},
 		},
 		"bash": {
 			Definition: llm.ToolDefinition{Name: "bash"},
-			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+			Run: func(context.Context, json.RawMessage) (tooldef.Result, error) {
 				entered <- "bash"
 				<-release
-				return tools.Result{Content: "B"}, nil
+				return tooldef.Result{Content: "B"}, nil
 			},
 		},
 	}

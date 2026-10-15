@@ -9,7 +9,7 @@ import (
 	ext "github.com/pulseaiclub/phi/ext/go"
 
 	"github.com/pulseaiclub/phi/internal/extension/loader"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 // benchRunner builds a runner with n active fibers, each holding one tool_call
@@ -40,7 +40,7 @@ func benchRunner(n int) *Runner {
 		f.Attach(api, FiberActive)
 		fibers[name] = f
 	}
-	return &Runner{fibers: fibers, baseTools: []tools.Tool{}}
+	return &Runner{fibers: fibers, baseTools: []tooldef.Tool{}}
 }
 
 func benchmarkHandlers(b *testing.B, fibers int) {
