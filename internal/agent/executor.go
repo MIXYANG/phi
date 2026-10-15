@@ -32,7 +32,6 @@ type Executor struct {
 	ext       *extension.Runner // nil = disabled; methods are nil-safe no-ops
 	sessionID string
 	cwd       string
-
 	// askMu serializes approval prompts: a concurrent read-only batch can
 	// otherwise pop multiple dialogs / interleave stdin reads at once.
 	askMu sync.Mutex
