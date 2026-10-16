@@ -117,18 +117,17 @@ func generateUnifiedDiffFromChanges(changes []change, contextLines int) string {
 					newCount++
 				}
 			}
-			anchorOld := -1
+			// A zero-length old range is anchored on the old line that
+			// precedes the hunk, so its start is the number of old lines
+			// before the insertion (0 at the top of the file).
+			anchorOld := 0
 			for i := h.start - 1; i >= 0; i-- {
 				if changes[i].OldIdx >= 0 {
 					anchorOld = changes[i].OldIdx + 1
 					break
 				}
 			}
-			if anchorOld == -1 {
-				oldStart = 1
-			} else {
-				oldStart = anchorOld + 1
-			}
+			oldStart = anchorOld
 			oldCount = 0
 		case hasOldLines && !hasNewLines:
 			for _, c := range hunkChanges {
@@ -139,18 +138,16 @@ func generateUnifiedDiffFromChanges(changes []change, contextLines int) string {
 					oldCount++
 				}
 			}
-			anchorNew := -1
+			// Same anchor rule for the new side: with no new lines in the
+			// hunk, the start counts the new lines before it.
+			anchorNew := 0
 			for i := h.start - 1; i >= 0; i-- {
 				if changes[i].NewIdx >= 0 {
 					anchorNew = changes[i].NewIdx + 1
 					break
 				}
 			}
-			if anchorNew == -1 {
-				newStart = 1
-			} else {
-				newStart = anchorNew + 1
-			}
+			newStart = anchorNew
 			newCount = 0
 		}
 
