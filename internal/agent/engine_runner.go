@@ -156,6 +156,6 @@ func (r EngineRunner) newEngine(meta job.Meta, spec ChildSpec) (*Engine, error) 
 		WithMaxRounds(r.MaxRounds),
 		WithExtensions(extRunner),
 		WithOmitExtensionTools(true),
-		WithHooks(model.HooksFor(cfg.Name)),
+		WithHooks(model.HooksForConfig(cfg)),
 	)
 }

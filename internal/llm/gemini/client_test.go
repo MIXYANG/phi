@@ -259,11 +259,13 @@ func TestCompactUsesNonStreamingEndpoint(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	res, err := Compact(
+	body := BuildRequest("", []llm.Message{{Role: llm.RoleUser, Content: "summarize"}}, nil)
+	body.SetMaxOutputTokens(13107)
+	res, err := CompactRequest(
 		t.Context(),
 		srv.Client(),
 		llm.ModelConfig{Name: "gemini-2.5-flash", BaseURL: srv.URL, APIKey: "k"},
-		llm.CompactRequest{Prompt: "summarize", MaxTokens: 13107},
+		&body,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "summary", res.Text)
@@ -301,11 +303,11 @@ func TestCompactFormatsAPIError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := Compact(
+	_, err := CompactRequest(
 		t.Context(),
 		srv.Client(),
 		llm.ModelConfig{Name: "gemini-2.5-flash", BaseURL: srv.URL, APIKey: "bad"},
-		llm.CompactRequest{Prompt: "summarize"},
+		&GeminiRequest{Contents: []content{{Role: "user", Parts: []part{{Text: "summarize"}}}}},
 	)
 	require.Error(t, err)
 	assert.Equal(t, "gemini API error (400): API key not valid. Please pass a valid API key.", err.Error())

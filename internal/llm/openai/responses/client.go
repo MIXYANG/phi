@@ -48,7 +48,7 @@ func CompactRequest(
 	cfg llm.ModelConfig,
 	req *Request,
 ) (llm.CompactResult, error) {
-	body, err := json.Marshal(req)
+	body, err := llm.MarshalRequest(req, cfg)
 	if err != nil {
 		return llm.CompactResult{}, err
 	}
@@ -128,7 +128,7 @@ func Stream(
 	req *Request,
 ) iter.Seq2[llm.StreamEvent, error] {
 	return func(yield func(llm.StreamEvent, error) bool) {
-		body, err := json.Marshal(req)
+		body, err := llm.MarshalRequest(req, cfg)
 		if err != nil {
 			yield(llm.StreamEvent{}, err)
 			return

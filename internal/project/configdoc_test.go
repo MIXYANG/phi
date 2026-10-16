@@ -9,6 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func parseConfigFile(path string) (*Config, error) {
+	return parseConfigFileWithEnv(path, false)
+}
+
 const configDocFixture = `models:
   - name: model-a
     api_key: key-a
@@ -70,6 +74,20 @@ func TestConfigDocRoundTripThroughLoader(t *testing.T) {
 	backup, err := os.ReadFile(path + ".bak")
 	require.NoError(t, err)
 	assert.Contains(t, string(backup), "model-b")
+}
+
+func TestInvalidRequestParametersFailConfigLoad(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`models:
+  - name: gpt-6-astra
+    api_key: fake-key
+    request_parameters: {input: null}
+`), 0o600))
+	_, err := parseConfigFile(path)
+	require.ErrorContains(t, err, "input is managed by phi")
+	doc, err := ReadConfigDoc(path)
+	require.NoError(t, err)
+	require.ErrorContains(t, doc.Validate(), "input is managed by phi")
 }
 
 func TestConfigDocKeepsAbsentKeysAbsent(t *testing.T) {

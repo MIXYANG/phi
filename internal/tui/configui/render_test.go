@@ -20,7 +20,7 @@ func assertFocusMarker(t *testing.T, e *ConfigEditor, out components.Surface) {
 	require.GreaterOrEqual(t, y, e.rowsTop)
 	require.Less(t, y, e.rowsTop+e.page)
 	for rowY := e.rowsTop; rowY < e.rowsTop+e.page; rowY++ {
-		marker := out.Buffer[rowY*out.Size.Width+xFocus]
+		marker := out.Buffer[rowY*out.Size.Width+xSection]
 		if rowY == y {
 			assert.Equal(t, chrome.FocusMarker, marker.Char, "the active row must be identifiable without color")
 			assert.True(t, marker.Style.Bold)
@@ -89,12 +89,12 @@ func TestFocusMarkerSurvivesTerminalColorDowngrade(t *testing.T) {
 				focus(t, e, modelKey(0, fURL))
 				out := drawForm(t, e)
 				y := formRowY(t, e, modelKey(0, fURL))
-				marker := out.Buffer[y*out.Size.Width+xFocus]
+				marker := out.Buffer[y*out.Size.Width+xSection]
 				if level != xui.ColorNone {
 					assert.NotEqual(t, marker.Style.Fg.Downgrade(level), marker.Style.Bg.Downgrade(level),
 						"the marker needs readable contrast after color conversion")
 				}
-				dirty := []xui.DirtyCell{{X: xFocus, Y: y, Cell: marker}}
+				dirty := []xui.DirtyCell{{X: xSection, Y: y, Cell: marker}}
 				renderer := xui.NewRenderer()
 				renderer.UpdateCaps(xui.Caps{ColorLevel: level})
 				var ansi bytes.Buffer

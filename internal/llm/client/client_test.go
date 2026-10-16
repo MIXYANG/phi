@@ -245,7 +245,7 @@ func jsonField(t *testing.T, body []byte, field string) int {
 type openAIExtraThinking struct{}
 
 func (openAIExtraThinking) Before(_ context.Context, req *openai.Request, _ llm.ModelConfig) error {
-	req.ExtraBody = &openai.ExtraBody{Thinking: &openai.ThinkingConfig{Type: "enabled"}}
+	req.Thinking = &openai.ThinkingConfig{Type: "enabled"}
 	return nil
 }
 
@@ -267,7 +267,7 @@ func TestClientStreamOpenAIRunsInterceptor(t *testing.T) {
 	for _, err := range client.Stream(t.Context(), []llm.Message{{Role: llm.RoleUser, Content: "hi"}}) {
 		require.NoError(t, err)
 	}
-	require.Contains(t, string(body), `"extra_body"`)
+	require.NotContains(t, string(body), `"extra_body"`)
 	require.Contains(t, string(body), `"thinking"`)
 }
 

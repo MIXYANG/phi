@@ -15,6 +15,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chrome"
+	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/project"
 )
 
@@ -81,21 +82,116 @@ func TestBuildRowsCoverEverySection(t *testing.T) {
 	assert.Empty(t, e.rows[2].badge)
 }
 
-func TestCursorSkipsSectionHeaders(t *testing.T) {
-	e := newTestEditor(t, sampleDoc())
+func TestThinkingChoicesFollowPresetAndEndpoint(t *testing.T) {
+	for _, tc := range []struct {
+		entry project.ModelDoc
+		want  []string
+	}{
+		{project.ModelDoc{Name: "group/auto-kimi-k3"}, []string{"", "low", "high", "max"}},
+		{project.ModelDoc{Name: "kimi-k3", RequestParameters: map[string]any{"messages": nil}}, []string{"", "low", "high", "max"}},
+		{project.ModelDoc{Name: "opaque", Preset: "glm-5.3", ThinkLevel: "medium"}, []string{"", "low", "high", "max"}},
+		{project.ModelDoc{Name: "vendor/deepseek-v4-pro", BaseURL: "https://opencode.ai/zen/go/v1"}, []string{"", "high", "max"}},
+		{project.ModelDoc{Name: "custom"}, []string{"", "off", "minimal", "low", "medium", "high", "xhigh", "max"}},
+	} {
+		t.Run(tc.entry.Name, func(t *testing.T) {
+			e := newTestEditor(t, &project.ConfigDoc{Models: []project.ModelDoc{tc.entry}})
+			assertThinkingChoices(t, e, tc.want)
+		})
+	}
+}
+
+func assertThinkingChoices(t *testing.T, e *ConfigEditor, want []string) {
+	t.Helper()
+	focus(t, e, modelKey(0, fThink))
+	var choices []string
+	for _, choice := range e.rows[e.cursor].options {
+		choices = append(choices, choice.value)
+	}
+	assert.Equal(t, want, choices)
+}
+
+func TestInvalidModelRetainsDefaultsAndShowsError(t *testing.T) {
+	for _, entry := range []project.ModelDoc{
+		{Name: "kimi-k3", ThinkLevel: "medium"},
+		{Name: "kimi-k3", RequestParameters: llm.RequestParameters{"messages": nil}},
+		{Name: "custom", Preset: "unknown"},
+	} {
+		t.Run(entry.Name+entry.ThinkLevel+entry.Preset, func(t *testing.T) {
+			e := newTestEditor(t, &project.ConfigDoc{Models: []project.ModelDoc{entry}})
+			_, err := project.ResolveModelDoc(entry)
+			require.Error(t, err)
+			text := components.SurfaceText(drawForm(t, e))
+			assert.Contains(t, text, strings.Split(err.Error(), ";")[0])
+			if entry.Preset != "" {
+				focus(t, e, modelKey(0, fURL))
+				assert.Equal(t, defaultBaseURL, e.rows[e.cursor].display)
+				return
+			}
+			focus(t, e, modelKey(0, "header"))
+			assert.Equal(t, "OpenAI · 1M context", e.rows[e.cursor].note)
+			focus(t, e, modelKey(0, fURL))
+			assert.Equal(t, "https://api.moonshot.cn/v1", e.rows[e.cursor].display)
+			focus(t, e, modelKey(0, fCtx))
+			assert.Equal(t, "1M", e.rows[e.cursor].display)
+			focus(t, e, modelKey(0, fImage))
+			assert.Equal(t, "loader default: on", e.rows[e.cursor].hint)
+			if entry.ThinkLevel != "" {
+				e.commit(modelKey(0, fThink), "high")
+				assert.NotContains(t, components.SurfaceText(drawForm(t, e)), "unsupported")
+			}
+		})
+	}
+}
+
+func TestEditsRefreshThinkingChoices(t *testing.T) {
+	e := newTestEditor(t, &project.ConfigDoc{Models: []project.ModelDoc{{
+		Name: "vendor/deepseek-v4-pro",
+	}}})
+	assertThinkingChoices(t, e, []string{"", "off", "low", "high", "max"})
+
+	e.commit(modelKey(0, fURL), "https://opencode.ai/zen/go/v1")
+	drawForm(t, e)
+	assertThinkingChoices(t, e, []string{"", "high", "max"})
+
+	e.commit(modelKey(0, fAPI), "Anthropic")
+	drawForm(t, e)
+	assertThinkingChoices(t, e, []string{"", "off", "low", "high", "max"})
+}
+
+func TestFetchedModelRefreshesCachedRows(t *testing.T) {
+	e := newTestEditor(t, &project.ConfigDoc{Models: []project.ModelDoc{{Name: "custom"}}})
+	e.fetch = fetchState{done: true, index: 0, name: "custom", ids: []string{"group/auto-kimi-k3"}}
+	drawForm(t, e)
+	require.True(t, e.picker.Open)
+	press(e, xui.KeyEnter, 0)
+	assert.Equal(t, "group/auto-kimi-k3", e.doc.Models[0].Name)
+	assert.Contains(t, components.SurfaceText(drawForm(t, e)), "group/auto-kimi-k3")
+	assertThinkingChoices(t, e, []string{"", "low", "high", "max"})
+}
+
+func TestCursorSkipsNonSelectableRows(t *testing.T) {
+	doc := sampleDoc()
+	doc.Models[0].Preset = "unknown"
+	e := newTestEditor(t, doc)
+	drawForm(t, e)
+	for i, r := range e.rows {
+		if !r.selectable() {
+			assert.Equal(t, -1, e.rowAt(e.rowsTop+i-e.scroll))
+		}
+	}
 	for range len(e.rows) * 2 {
 		e.move(1)
-		require.NotEqual(t, rowSection, e.rows[e.cursor].kind, "cursor landed on a section header")
+		require.True(t, e.rows[e.cursor].selectable())
 	}
 	for range len(e.rows) * 2 {
 		e.move(-1)
-		require.NotEqual(t, rowSection, e.rows[e.cursor].kind, "cursor landed on a section header")
+		require.True(t, e.rows[e.cursor].selectable())
 	}
 
 	e.jumpEdge(true)
-	require.NotEqual(t, rowSection, e.rows[e.cursor].kind)
+	require.True(t, e.rows[e.cursor].selectable())
 	e.jumpEdge(false)
-	require.NotEqual(t, rowSection, e.rows[e.cursor].kind)
+	require.True(t, e.rows[e.cursor].selectable())
 }
 
 func TestEditModelNameRejectsEmpty(t *testing.T) {

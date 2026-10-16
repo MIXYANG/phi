@@ -102,6 +102,7 @@ type rowKind int
 
 const (
 	rowSection rowKind = iota
+	rowError
 	rowModel
 	rowField
 	rowItem
@@ -146,7 +147,7 @@ type row struct {
 	kind rowKind
 	key  string
 
-	// rowSection
+	// rowSection / rowError
 	title string
 	note  string
 
@@ -168,6 +169,8 @@ type row struct {
 	inherited bool   // list rows showing built-in rules rather than file rules
 }
 
+func (r row) selectable() bool { return r.kind != rowSection && r.kind != rowError }
+
 // fieldSpec declares one editable field; fieldRow renders it against the
 // document.
 type fieldSpec struct {
@@ -188,15 +191,14 @@ var (
 		opt(string(llm.Anthropic), "Anthropic", "messages API"),
 		opt(string(llm.Gemini), "Gemini", "generateContent"),
 	}
-	thinkOptions = []option{
-		opt("", "auto", "model or preset default"),
-		opt(string(llm.Off), "off", "no reasoning"),
-		opt(string(llm.Minimal), "minimal", "shortest reasoning"),
-		opt(string(llm.Low), "low", "light reasoning"),
-		opt(string(llm.Medium), "medium", "balanced"),
-		opt(string(llm.High), "high", "deep reasoning"),
-		opt(string(llm.XHigh), "xhigh", "deeper still"),
-		opt(string(llm.Max), "max", "provider maximum"),
+	thinkDescriptions = map[llm.ThinkMode]string{
+		llm.Off:     "no reasoning",
+		llm.Minimal: "shortest reasoning",
+		llm.Low:     "light reasoning",
+		llm.Medium:  "balanced",
+		llm.High:    "deep reasoning",
+		llm.XHigh:   "deeper still",
+		llm.Max:     "provider maximum",
 	}
 	permModeOptions = []option{
 		opt("", "auto", "interactive: ask before gated tools"),
@@ -268,43 +270,49 @@ func (e *ConfigEditor) buildModels() {
 		if strings.TrimSpace(name) == "" {
 			name = "unnamed model"
 		}
+		resolved, err := project.ResolveModelDoc(m)
 		e.rows = append(e.rows, row{
 			kind:  rowModel,
 			key:   modelKey(i, "header"),
 			model: i,
 			name:  name,
 			badge: badge,
-			note:  modelNote(m),
+			note:  modelNote(m, resolved),
 		})
-		for _, sp := range modelSpecs(m) {
+		if err != nil {
+			e.rows = append(e.rows, row{kind: rowError, key: modelKey(i, "error"), note: err.Error()})
+		}
+		for _, sp := range modelSpecs(resolved) {
 			sp.key = modelKey(i, sp.key)
 			e.addField(e.fieldRow(sp))
 		}
 	}
 }
 
-// modelSpecs lists the editable fields of one model entry. Placeholders show
-// what the built-in preset would supply, so an empty field is never a mystery.
-func modelSpecs(m project.ModelDoc) []fieldSpec {
-	preset, known := model.Lookup(m.Name)
+// Placeholders show resolved defaults, falling back to generic values for unknown presets.
+func modelSpecs(cfg llm.ModelConfig) []fieldSpec {
 	baseURL := defaultBaseURL
-	contextWindow := 0
-	image := false
-	if known {
-		if preset.Config.BaseURL != "" {
-			baseURL = preset.Config.BaseURL
+	if cfg.BaseURL != "" {
+		baseURL = cfg.BaseURL
+	}
+	modes := model.ThinkingModes(cfg)
+	options := make([]option, 1, len(modes)+1)
+	options[0] = opt("", "auto", "model or preset default")
+	for _, mode := range modes {
+		desc := thinkDescriptions[mode]
+		if desc == "" {
+			desc = "reasoning effort"
 		}
-		contextWindow = preset.Config.ContextWindow
-		image = preset.Config.ImageEnabled
+		options = append(options, opt(string(mode), string(mode), desc))
 	}
 	return []fieldSpec{
 		{key: fName, label: "name", kind: kindText, placeholder: "model id"},
 		{key: fKey, label: "api key", kind: kindSecret},
 		{key: fURL, label: "base url", kind: kindText, placeholder: baseURL},
 		{key: fAPI, label: "api", kind: kindChoice, options: apiOptions},
-		{key: fCtx, label: "context window", kind: kindInt, placeholder: humanTokens(contextWindow)},
-		{key: fImage, label: "image input", kind: kindBool, defaultOn: image},
-		{key: fThink, label: "thinking", kind: kindChoice, options: thinkOptions},
+		{key: fCtx, label: "context window", kind: kindInt, placeholder: humanTokens(cfg.ContextWindow)},
+		{key: fImage, label: "image input", kind: kindBool, defaultOn: cfg.ImageEnabled},
+		{key: fThink, label: "thinking", kind: kindChoice, options: options},
 		{key: fDeflt, label: "use by default", kind: kindPlainBool},
 	}
 }
@@ -713,20 +721,17 @@ func (e *ConfigEditor) modelAt(index int) *project.ModelDoc {
 	return &e.doc.Models[index]
 }
 
-func modelNote(m project.ModelDoc) string {
-	preset, known := model.Lookup(m.Name)
+func modelNote(m project.ModelDoc, cfg llm.ModelConfig) string {
 	api := m.API
 	window := 0
 	if m.ContextWindow != nil {
 		window = *m.ContextWindow
 	}
-	if known {
-		if api == "" {
-			api = string(preset.Config.API)
-		}
-		if window == 0 {
-			window = preset.Config.ContextWindow
-		}
+	if api == "" {
+		api = string(cfg.API)
+	}
+	if window == 0 {
+		window = cfg.ContextWindow
 	}
 	if api == "" {
 		api = "auto"

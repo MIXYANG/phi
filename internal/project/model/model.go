@@ -1,42 +1,114 @@
-// Package model holds built-in model presets — connection defaults for the
-// models providers advertise, so a config.yaml entry can omit base_url,
-// context_window, and image_enabled and still get the right values. Presets
-// are keyed by the exact model name the API documents; unknown or legacy
-// names fall through to the generic OpenAI defaults the config loader applies.
+// Package model supplies presets and request hooks for native and gateway model IDs.
 package model
 
 import (
+	"regexp"
+	"sort"
+	"strings"
+	"sync"
+
 	"github.com/pulseaiclub/phi/internal/llm"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 )
 
-// Preset is a built-in model catalog entry: connection defaults plus optional
-// request Hooks for vendor-specific wire shape.
+// Preset holds model defaults, request hooks and an optional gateway alias pattern.
 type Preset struct {
-	Config llm.ModelConfig
-	Hooks  llmclient.Hooks
+	Config        llm.ModelConfig
+	Hooks         llmclient.Hooks
+	Alias         string
+	thinkModes    []llm.ThinkMode
+	openCodeModes []llm.ThinkMode
 }
 
-// Lookup returns the built-in preset for a model name. ok is false for names
-// without a preset, so callers fall back to the generic OpenAI endpoint.
-// The returned config carries no api_key or skill path; the caller layers
-// those on top and may override any field.
+// Lookup inherits capabilities and hooks for aliases, keeping native connections separate.
 func Lookup(name string) (Preset, bool) {
 	for _, p := range presets {
-		if p.Config.Name == name {
+		if strings.EqualFold(p.Config.Name, name) {
+			p.Config.Name = name
 			return p, true
 		}
+	}
+	// A model-like namespace must not override a later model segment. Slashes
+	// inside colon or bracket qualifiers belong to the qualifier, not the route.
+	route := name
+	if i := strings.IndexAny(route, ":["); i >= 0 {
+		route = route[:i]
+	}
+	for {
+		start := strings.LastIndexByte(route, '/') + 1
+		for _, rule := range aliasRules() {
+			if rule.match.MatchString(name[start:]) {
+				p := rule.preset
+				p.Config.Name = name
+				p.Config.BaseURL, p.Config.API = "", ""
+				return p, true
+			}
+		}
+		if start == 0 {
+			break
+		}
+		route = route[:start-1]
 	}
 	return Preset{}, false
 }
 
-// HooksFor returns request hooks from the built-in catalog, or a zero Hooks
-// when the name has no preset (or the preset has no interceptors).
+type aliasRule struct {
+	match  *regexp.Regexp
+	preset Preset
+}
+
+// LookupBound uses bound when set; a different name inherits capabilities without connection defaults.
+func LookupBound(bound, name string) (Preset, bool) {
+	identity := name
+	if bound != "" {
+		identity = bound
+	}
+	if identity == "" {
+		return Preset{}, false
+	}
+	p, ok := Lookup(identity)
+	if ok && bound != "" && !strings.EqualFold(name, bound) {
+		p.Config.BaseURL, p.Config.API = "", ""
+	}
+	return p, ok
+}
+
+// Specific variants take precedence over their families. Only documented
+// routing prefixes, date suffixes and gateway qualifiers are interchangeable.
+var aliasRules = sync.OnceValue(buildAliasRules)
+
+func buildAliasRules() []aliasRule {
+	rules := make([]aliasRule, 0, len(presets))
+	for _, p := range presets {
+		pattern := p.Alias
+		if pattern == "" {
+			pattern = regexp.QuoteMeta(p.Config.Name)
+		}
+		rules = append(rules, aliasRule{
+			match:  regexp.MustCompile(`(?i)^` + pattern + `(?:-\d{8}|-\d{4}-\d{2}-\d{2})?(?:[:/\[].*)?$`),
+			preset: p,
+		})
+	}
+	sort.SliceStable(rules, func(i, j int) bool {
+		return len(rules[i].preset.Config.Name) > len(rules[j].preset.Config.Name)
+	})
+	return rules
+}
+
+// HooksFor returns preset request hooks, or empty hooks for unknown names.
 func HooksFor(name string) llmclient.Hooks {
 	if p, ok := Lookup(name); ok {
 		return p.Hooks
 	}
 	return llmclient.Hooks{}
+}
+
+// HooksForConfig honors explicit preset bindings for opaque gateway IDs.
+func HooksForConfig(cfg llm.ModelConfig) llmclient.Hooks {
+	if cfg.Preset != "" {
+		return HooksFor(cfg.Preset)
+	}
+	return HooksFor(cfg.Name)
 }
 
 var (
@@ -129,7 +201,11 @@ var presets = []Preset{
 			API:           llm.OpenAI,
 			Think:         thinkHigh,
 		},
-		Hooks: deepseekHooks(),
+		Hooks:         chatHooks(false),
+		thinkModes:    []llm.ThinkMode{llm.Off, llm.Low, llm.High, llm.Max},
+		openCodeModes: []llm.ThinkMode{llm.Low, llm.High, llm.Max},
+		// V4.1 Flash shares the Flash recommendation under both separators.
+		Alias: `deepseek-(?:v4[.\-]1-)?flash`,
 	},
 	{
 		Config: llm.ModelConfig{
@@ -139,7 +215,9 @@ var presets = []Preset{
 			API:           llm.OpenAI,
 			Think:         thinkHigh,
 		},
-		Hooks: deepseekHooks(),
+		Hooks:         chatHooks(false),
+		thinkModes:    []llm.ThinkMode{llm.Off, llm.Low, llm.High, llm.Max},
+		openCodeModes: []llm.ThinkMode{llm.High, llm.Max},
 	},
 	// Gemini 2.5 — thinkingBudget (token cap). Source: https://ai.google.dev/gemini-api/docs/models
 	{
@@ -196,6 +274,8 @@ var presets = []Preset{
 			API:           llm.OpenAI,
 			Think:         thinkMax,
 		},
+		Alias:      `(?:auto-)?kimi-k3`,
+		thinkModes: []llm.ThinkMode{llm.Low, llm.High, llm.Max},
 	},
 	{
 		Config: llm.ModelConfig{
@@ -206,9 +286,8 @@ var presets = []Preset{
 			API:           llm.OpenAI,
 		},
 	},
-	// GLM on the z.ai coding plan. Both presets are forced-thinking, and
-	// thinking rides in extra_body.thinking with clear_thinking false (Preserved
-	// Thinking), so reasoning survives across turns.
+	// GLM on the z.ai coding plan. Both presets are forced-thinking; endpoint
+	// rules enable preserved history only on known native APIs.
 	// Sources: https://docs.z.ai/api-reference/llm/chat-completion
 	//          https://docs.z.ai/guides/capabilities/thinking
 	{
@@ -220,7 +299,10 @@ var presets = []Preset{
 			API:           llm.OpenAI,
 			Think:         thinkMax,
 		},
-		Hooks: glmHooks(),
+		Hooks:      chatHooks(true),
+		thinkModes: []llm.ThinkMode{llm.Low, llm.High, llm.Max},
+		// group/auto-glm-5-3-flash routes with a dash for the version dot.
+		Alias: `(?:auto-)?glm-5[.\-]3-flash`,
 	},
 	{
 		Config: llm.ModelConfig{
@@ -230,6 +312,8 @@ var presets = []Preset{
 			API:           llm.OpenAI,
 			Think:         thinkMax,
 		},
-		Hooks: glmHooks(),
+		Hooks:      chatHooks(true),
+		thinkModes: []llm.ThinkMode{llm.Low, llm.High, llm.Max},
+		Alias:      `(?:auto-)?glm-5[.\-]3`,
 	},
 }

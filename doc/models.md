@@ -5,9 +5,31 @@ phi talks to LLMs through an **explicit** `api` field on each config entry
 OpenAI-compatible `/chat/completions`. There is no name- or URL-based
 provider guessing.
 
-Built-in **presets** (exact `name` match) fill `base_url`, `context_window`,
-`image_enabled`, `api`, and default thinking when those fields are omitted.
+Built-in **presets** supply model capabilities and thinking defaults. Native
+IDs also supply connection defaults; gateway aliases need `base_url` and `api`.
+Explicit fields override defaults. The configured model ID is sent unchanged.
 Source of truth: [`internal/project/model`](../internal/project/model/).
+
+## Gateway aliases and preset bindings
+
+Matching is case-insensitive and accepts routing prefixes, date suffixes and
+qualifiers such as `vendor/glm-5.3-flash:free`. The rightmost recognized model
+wins; slashes inside `:` or `[...]` qualifiers are ignored. Specific variants
+take precedence over their families; arbitrary variant suffixes do not match.
+
+Also recognized: `group/auto-glm-5-3-flash`, `group/auto-kimi-k3`, and
+DeepSeek V4.1 Flash aliases (using the `deepseek-flash` preset).
+
+For an opaque route, `preset` selects capabilities and request hooks:
+
+```yaml
+models:
+  - name: my-fast-route
+    preset: glm-5.3-flash
+    api: OpenAI
+    base_url: https://gateway.example/v1
+    api_key: your-key
+```
 
 ## Built-in presets
 
@@ -20,7 +42,7 @@ Source of truth: [`internal/project/model`](../internal/project/model/).
 | `gpt-5-chat-latest` | OpenAIResponses | `https://api.openai.com/v1` | 128K | yes | — |
 | `gpt-5.5` | OpenAIResponses | `https://api.openai.com/v1` | 272K | yes | `reasoning.effort` (high) |
 | `gpt-5.5-pro` | OpenAIResponses | `https://api.openai.com/v1` | 1.05M | yes | `reasoning.effort` (high) |
-| `deepseek-flash` | OpenAI | `https://api.deepseek.com` | 1M | yes | `extra_body.thinking` + `reasoning_effort` |
+| `deepseek-flash` | OpenAI | `https://api.deepseek.com` | 1M | yes | `thinking` + `reasoning_effort` |
 | `deepseek-v4-pro` | OpenAI | `https://api.deepseek.com` | 1M | no | same as Flash |
 | `gemini-2.5-pro` | Gemini | Google Generative Language | 1M | yes | `thinkingBudget` (token cap) |
 | `gemini-2.5-flash` | Gemini | Google Generative Language | 1M | yes | `thinkingBudget` |
@@ -28,7 +50,7 @@ Source of truth: [`internal/project/model`](../internal/project/model/).
 | `gemini-3-flash` | Gemini | Google Generative Language | 1M | yes | `thinkingLevel` (off floor `MINIMAL`) |
 | `kimi-k3` | OpenAI | `https://api.moonshot.cn/v1` | 1M | yes | `reasoning_effort` (max) |
 | `kimi-k2.7-code` | OpenAI | `https://api.moonshot.cn/v1` | 10M | yes | — |
-| `glm-5.3` | OpenAI | `https://api.z.ai/api/coding/paas/v4` | 1M | no | `extra_body.thinking` + `reasoning_effort` |
+| `glm-5.3` | OpenAI | `https://api.z.ai/api/coding/paas/v4` | 1M | no | endpoint-specific `thinking` + `reasoning_effort` |
 | `glm-5.3-flash` | OpenAI | `https://api.z.ai/api/coding/paas/v4` | 1M | yes | same as `glm-5.3` |
 
 Minimal config for a preset (api key only):
@@ -116,12 +138,54 @@ Provider-agnostic knobs on each model (and session UI):
 How that maps on the wire depends on the provider / preset interceptor
 (OpenAI `reasoning_effort`, Anthropic thinking budget, Gemini budget or level).
 
+GLM 5.3 and Kimi K3 support `low`, `high`, `max`; DeepSeek also supports `off`.
+OpenCode Go Chat allows `low` / `high` / `max` for Flash and `high` / `max` for Pro.
+Configuration loading rejects unsupported levels, including disabling required
+thinking. Both pickers show supported levels; custom models use the generic list.
+
 ```yaml
 models:
   - name: gemini-2.5-flash
     api_key: ...
     think_level: medium
 ```
+
+## Request parameters
+
+Conversations and compaction apply parameters in this order:
+API baseline → model/endpoint adapter → `request_parameters`.
+
+GLM and DeepSeek Chat use top-level `thinking` and `reasoning_effort`. GLM
+always enables thinking; DeepSeek follows the toggle. GLM also sends
+`clear_thinking: false` on Z.ai and BigModel HTTPS `/api/paas/v4` and
+`/api/coding/paas/v4` endpoints to preserve reasoning history.
+On `https://opencode.ai/zen/go/v1`, both use `reasoning_effort` alone.
+
+GLM and DeepSeek Messages use budget-free `thinking` and `output_config.effort`.
+On OpenRouter (`https://openrouter.ai/api` or `/api/v1`), enabled thinking uses
+`adaptive`; disabled thinking uses `disabled`. Native Claude retains budget checks.
+
+Endpoint matching normalizes host case, default ports and trailing slashes,
+and accepts full `/chat/completions` URLs. Paths must match exactly; credentials,
+query strings, fragments and non-default ports exclude native endpoint rules.
+
+Each model can override options using the API's JSON field names:
+
+```yaml
+request_parameters:
+  thinking:
+    clear_thinking: null
+```
+
+Objects merge recursively; `null` deletes a field or object, while `false` and
+`0` remain explicit. Overrides take precedence over session thinking controls.
+The editor preserves these options but does not expose them as editable fields.
+
+Model identity, messages, tools, streaming controls, choice count and output
+limits remain managed by phi. Gemini options must merge into `generationConfig`
+without replacing it or changing `maxOutputTokens` / `candidateCount` (including
+snake_case aliases). Anthropic validates final thinking budgets. Vendor fields
+belong directly under `request_parameters`, not an `extra_body` wrapper.
 
 ## Related
 

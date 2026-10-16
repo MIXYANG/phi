@@ -20,14 +20,36 @@ type thinkingConfig struct {
 }
 
 type AnthropicRequest struct {
-	Model     string             `json:"model"`
-	MaxTokens int                `json:"max_tokens"`
-	System    []sysBlock         `json:"system,omitempty"`
-	Messages  []anthropicMessage `json:"messages"`
-	Stream    bool               `json:"stream"`
-	Tools     []anthropicTool    `json:"tools,omitempty"`
-	Thinking  *thinkingConfig    `json:"thinking,omitempty"`
-	native    *llm.ProviderState
+	Model          string             `json:"model"`
+	MaxTokens      int                `json:"max_tokens"`
+	System         []sysBlock         `json:"system,omitempty"`
+	Messages       []anthropicMessage `json:"messages"`
+	Stream         bool               `json:"stream"`
+	Tools          []anthropicTool    `json:"tools,omitempty"`
+	Thinking       *thinkingConfig    `json:"thinking,omitempty"`
+	OutputConfig   *outputConfig      `json:"output_config,omitempty"`
+	native         *llm.ProviderState
+	vendorThinking bool
+}
+
+type outputConfig struct {
+	Effort string `json:"effort,omitempty"`
+}
+
+// ApplyVendorThinking uses budget-free GLM and DeepSeek thinking; Claude keeps budget checks.
+func (r *AnthropicRequest) ApplyVendorThinking(think llm.ThinkConfig, forced, adaptive bool) {
+	r.vendorThinking = true
+	r.OutputConfig = nil
+	r.Thinking = &thinkingConfig{Type: "disabled"}
+	if forced || think.Enabled {
+		r.Thinking.Type = "enabled"
+		if adaptive {
+			r.Thinking.Type = "adaptive"
+		}
+	}
+	if think.Enabled {
+		r.OutputConfig = &outputConfig{Effort: string(think.Mode)}
+	}
 }
 
 type anthropicMessage struct {

@@ -299,7 +299,7 @@ func validateThinking(req *AnthropicRequest) error {
 	}
 	budget := req.Thinking.BudgetTokens
 	if budget == nil {
-		if req.Thinking.Type != "enabled" {
+		if req.Thinking.Type != "enabled" || req.vendorThinking {
 			return nil // adaptive carries no budget
 		}
 		return fmt.Errorf(
@@ -350,12 +350,7 @@ func Stream(
 	req *AnthropicRequest,
 ) iter.Seq2[llm.StreamEvent, error] {
 	return func(yield func(llm.StreamEvent, error) bool) {
-		if err := validateThinking(req); err != nil {
-			yield(llm.StreamEvent{}, err)
-			return
-		}
-
-		body, err := json.Marshal(req)
+		body, err := marshalRequest(req, cfg)
 		if err != nil {
 			yield(llm.StreamEvent{}, err)
 			return
@@ -611,27 +606,30 @@ stream:
 	yield(done, nil)
 }
 
-// Compact sends a single non-streaming request and returns the assistant
-// text. Satisfies llm.Compactor for session compaction on Claude.
-func Compact(
-	ctx context.Context,
-	httpClient *http.Client,
-	cfg llm.ModelConfig,
-	req llm.CompactRequest,
-) (llm.CompactResult, error) {
+// NewCompactRequest leaves Claude thinking off to reserve the output cap for summary text.
+func NewCompactRequest(model, prompt string, maxTokens int) *AnthropicRequest {
 	// Anthropic requires max_tokens; fall back to the default cap when the
 	// caller has no budget to derive one from.
-	maxTokens := req.MaxTokens
 	if maxTokens <= 0 {
 		maxTokens = defaultMaxTokens
 	}
-	body, err := json.Marshal(AnthropicRequest{
-		Model:     cfg.Name,
+	return &AnthropicRequest{
+		Model:     model,
 		MaxTokens: maxTokens,
 		Messages: []anthropicMessage{
-			{Role: "user", Content: req.Prompt},
+			{Role: "user", Content: prompt},
 		},
-	})
+	}
+}
+
+// CompactRequest validates final parameters before sending a summary request.
+func CompactRequest(
+	ctx context.Context,
+	httpClient *http.Client,
+	cfg llm.ModelConfig,
+	req *AnthropicRequest,
+) (llm.CompactResult, error) {
+	body, err := marshalRequest(req, cfg)
 	if err != nil {
 		return llm.CompactResult{}, err
 	}
@@ -678,4 +676,28 @@ func Compact(
 		Text:      sb.String(),
 		Truncated: resp.StopReason == stopReasonMaxTokens,
 	}, nil
+}
+
+func marshalRequest(req *AnthropicRequest, cfg llm.ModelConfig) ([]byte, error) {
+	body, err := llm.MarshalRequest(req, cfg)
+	if err != nil {
+		return nil, err
+	}
+	// Reparse only overridden thinking; max_tokens is protected and conversations can be large.
+	thinking := req.Thinking
+	if _, ok := cfg.RequestParameters["thinking"]; ok {
+		var final struct {
+			Thinking *thinkingConfig `json:"thinking"`
+		}
+		if err := json.Unmarshal(body, &final); err != nil {
+			return nil, fmt.Errorf("anthropic request parameters: %w", err)
+		}
+		thinking = final.Thinking
+	}
+	if err := validateThinking(&AnthropicRequest{
+		MaxTokens: req.MaxTokens, Thinking: thinking, vendorThinking: req.vendorThinking,
+	}); err != nil {
+		return nil, err
+	}
+	return body, nil
 }

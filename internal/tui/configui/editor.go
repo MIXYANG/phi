@@ -230,7 +230,7 @@ func (e *ConfigEditor) move(delta int) {
 		if i < 0 || i >= len(e.rows) {
 			return
 		}
-		if e.rows[i].kind != rowSection {
+		if e.rows[i].selectable() {
 			break
 		}
 	}
@@ -244,7 +244,7 @@ func (e *ConfigEditor) jumpEdge(last bool) {
 		if last {
 			index = len(e.rows) - 1 - i
 		}
-		if e.rows[index].kind != rowSection {
+		if e.rows[index].selectable() {
 			e.setCursor(index)
 			return
 		}
@@ -255,7 +255,7 @@ func (e *ConfigEditor) jumpEdge(last bool) {
 // leaves it. Row indices shift on collapse, so the target key is captured
 // first.
 func (e *ConfigEditor) setCursor(index int) {
-	if index < 0 || index >= len(e.rows) {
+	if index < 0 || index >= len(e.rows) || !e.rows[index].selectable() {
 		return
 	}
 	key := e.rows[index].key
@@ -280,13 +280,13 @@ func (e *ConfigEditor) anchor(key string, fallback int) {
 		return
 	}
 	for i := range e.rows {
-		if e.rows[i].key == key {
+		if e.rows[i].key == key && e.rows[i].selectable() {
 			e.cursor = i
 			return
 		}
 	}
 	fallback = min(max(fallback, 0), len(e.rows)-1)
-	for fallback > 0 && e.rows[fallback].kind == rowSection {
+	for fallback > 0 && !e.rows[fallback].selectable() {
 		fallback--
 	}
 	e.cursor = fallback
@@ -803,7 +803,7 @@ func (e *ConfigEditor) rowAt(y int) int {
 		return -1
 	}
 	index := e.scroll + (y - e.rowsTop)
-	if index < 0 || index >= len(e.rows) || e.rows[index].kind == rowSection {
+	if index < 0 || index >= len(e.rows) || !e.rows[index].selectable() {
 		return -1
 	}
 	return index

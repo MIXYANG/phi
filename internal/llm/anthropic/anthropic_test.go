@@ -378,7 +378,12 @@ func TestCompactRequestHasNoThinking(t *testing.T) {
 		Name: "claude-sonnet-4-20250514", BaseURL: srv.URL, APIKey: "k",
 		Think: llm.ThinkConfig{Enabled: true, Mode: llm.Max},
 	}
-	_, err := Compact(t.Context(), http.DefaultClient, cfg, llm.CompactRequest{Prompt: "summarize", MaxTokens: 100})
+	_, err := CompactRequest(
+		t.Context(),
+		http.DefaultClient,
+		cfg,
+		NewCompactRequest(cfg.Name, "summarize", 100),
+	)
 	require.NoError(t, err)
 
 	var raw map[string]json.RawMessage

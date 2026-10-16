@@ -287,7 +287,7 @@ func Stream(
 	req *GeminiRequest,
 ) iter.Seq2[llm.StreamEvent, error] {
 	return func(yield func(llm.StreamEvent, error) bool) {
-		body, err := json.Marshal(req)
+		body, err := llm.MarshalRequest(req, config)
 		if err != nil {
 			yield(llm.StreamEvent{}, err)
 			return
@@ -426,18 +426,6 @@ func toLLMToolCall(p part, index int) llm.ToolCall {
 	return toolCall
 }
 
-// Compact builds a minimal non-streaming Gemini body for one summarization call.
-func Compact(
-	ctx context.Context,
-	client *http.Client,
-	cfg llm.ModelConfig,
-	req llm.CompactRequest,
-) (llm.CompactResult, error) {
-	body := BuildRequest("", []llm.Message{{Role: llm.RoleUser, Content: req.Prompt}}, nil)
-	body.SetMaxOutputTokens(req.MaxTokens)
-	return CompactRequest(ctx, client, cfg, &body)
-}
-
 // CompactRequest POSTs a non-streaming Gemini body and returns assistant text.
 func CompactRequest(
 	ctx context.Context,
@@ -445,7 +433,7 @@ func CompactRequest(
 	cfg llm.ModelConfig,
 	req *GeminiRequest,
 ) (llm.CompactResult, error) {
-	body, err := json.Marshal(req)
+	body, err := llm.MarshalRequest(req, cfg)
 	if err != nil {
 		return llm.CompactResult{}, err
 	}

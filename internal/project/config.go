@@ -99,12 +99,10 @@ func (c *Config) defaultEntry() *llm.ModelConfig {
 // loadConfig reads the config file, applies environment overrides, and fills
 // in defaults. A missing file yields a zero Config so env-only setups work.
 func loadConfig(global GlobalLayout, cwd string) (*Config, error) {
-	cfg, err := parseConfigFile(global.ConfigFile())
+	cfg, err := parseConfigFileWithEnv(global.ConfigFile(), true)
 	if err != nil {
 		return nil, err
 	}
-	applyEnvOverrides(cfg)
-
 	if len(cfg.Models) == 0 {
 		return nil, fmt.Errorf("missing models (add at least one model in %s)", global.ConfigFile())
 	}
@@ -127,18 +125,15 @@ func loadConfig(global GlobalLayout, cwd string) (*Config, error) {
 	return cfg, nil
 }
 
-// parseConfigFile reads models, skill_path, and permissions from the YAML
+// parseConfigFileWithEnv reads models, skill_path, and permissions from the YAML
 // config file. A missing file yields a zero Config with DefaultPolicy for
 // permissions; a malformed file is an error so bad config never silently
 // degrades to defaults.
-func parseConfigFile(path string) (*Config, error) {
+func parseConfigFileWithEnv(path string, withEnv bool) (*Config, error) {
 	cfg := &Config{Permissions: permission.DefaultPolicy(), Agents: AgentsConfig{Enabled: true}}
 
 	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return cfg, nil
-		}
+	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
 
@@ -149,9 +144,16 @@ func parseConfigFile(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
+	// Resolve defaults for the effective model, including env-only setups.
+	if withEnv {
+		applyEnvOverrides(&raw)
+	}
 
 	for _, m := range raw.Models {
-		mc := modelDocToConfig(m)
+		mc, err := ResolveModelDoc(m)
+		if err != nil {
+			return nil, fmt.Errorf("model %q: %w", m.Name, err)
+		}
 		if m.Default && cfg.DefaultModel == "" {
 			cfg.DefaultModel = mc.Name
 		}
@@ -181,12 +183,19 @@ func parseConfigFile(path string) (*Config, error) {
 	return cfg, nil
 }
 
-func modelDocToConfig(m ModelDoc) llm.ModelConfig {
-	cfg := llm.ModelConfig{Name: m.Name, APIKey: m.APIKey, BaseURL: m.BaseURL}
-	// A built-in preset supplies base_url / context_window / image_enabled / api
-	// when the entry omits them; the explicit fields below still win so
-	// users can override any default.
-	if preset, ok := model.Lookup(m.Name); ok {
+// ResolveModelDoc resolves defaults and validates overrides for the runtime and editor.
+func ResolveModelDoc(m ModelDoc) (llm.ModelConfig, error) {
+	cfg := llm.ModelConfig{
+		Name: m.Name, Preset: m.Preset, APIKey: m.APIKey, BaseURL: m.BaseURL,
+		API:               llm.RouterType(m.API),
+		RequestParameters: m.RequestParameters,
+	}
+	// Explicit fields below override preset defaults.
+	preset, ok := model.LookupBound(m.Preset, m.Name)
+	if m.Preset != "" && !ok {
+		return llm.ModelConfig{}, fmt.Errorf("unknown preset %q; use a built-in model name", m.Preset)
+	}
+	if ok {
 		pc := preset.Config
 		if cfg.BaseURL == "" {
 			cfg.BaseURL = pc.BaseURL
@@ -198,12 +207,7 @@ func modelDocToConfig(m ModelDoc) llm.ModelConfig {
 		if cfg.API == "" {
 			cfg.API = pc.API
 		}
-		// Inherit the preset's thinking config so models like deepseek-flash
-		// ship with sensible defaults (thinking enabled, high mode).
 		cfg.Think = pc.Think
-	}
-	if m.API != "" {
-		cfg.API = llm.RouterType(m.API)
 	}
 	if m.ContextWindow != nil && *m.ContextWindow > 0 {
 		cfg.ContextWindow = *m.ContextWindow
@@ -215,14 +219,19 @@ func modelDocToConfig(m ModelDoc) llm.ModelConfig {
 		cfg.Think.Enabled = *m.ThinkEnabled
 	}
 	if m.ThinkLevel != "" {
-		mode := llm.ThinkMode(m.ThinkLevel)
-		cfg.Think.Mode = mode
-		cfg.Think.Enabled = mode != llm.Off
+		cfg.Think.Mode = llm.ThinkMode(m.ThinkLevel)
+		cfg.Think.Enabled = cfg.Think.Mode != llm.Off
 	}
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.openai.com/v1"
 	}
-	return cfg
+	if err := model.ValidateThinking(cfg); err != nil {
+		return cfg, err
+	}
+	if err := cfg.RequestParameters.Validate(cfg.API); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
 }
 
 // applyPermissions merges the file's permissions block over DefaultPolicy.
@@ -282,24 +291,35 @@ func parseDecision(val string, def permission.Decision) permission.Decision {
 	}
 }
 
-func applyEnvOverrides(c *Config) {
+func applyEnvOverrides(doc *ConfigDoc) {
+	index := 0
+	for i, m := range doc.Models {
+		if m.Default {
+			index = i
+			break
+		}
+	}
+	entry := func() *ModelDoc {
+		if len(doc.Models) == 0 {
+			doc.Models = append(doc.Models, ModelDoc{})
+		}
+		return &doc.Models[index]
+	}
 	if v := firstEnv("PHI_API_KEY"); v != "" {
-		c.defaultEntry().APIKey = v
+		entry().APIKey = v
 	}
 	if v := firstEnv("PHI_BASE_URL"); v != "" {
-		c.defaultEntry().BaseURL = v
+		entry().BaseURL = v
 	}
 	if v := firstEnv("PHI_MODEL"); v != "" {
-		c.defaultEntry().Name = v
-		c.DefaultModel = v
+		entry().Name = v
+		entry().Default = true
 	}
 	if v := firstEnv("PHI_SKILL_PATH"); v != "" {
-		c.SkillPath = v
+		doc.SkillPath = &v
 	}
 	if v := firstEnv("PHI_THINK_LEVEL"); v != "" {
-		entry := c.defaultEntry()
-		entry.Think.Mode = llm.ThinkMode(v)
-		entry.Think.Enabled = (v != string(llm.Off))
+		entry().ThinkLevel = v
 	}
 }
 
