@@ -43,7 +43,7 @@ func TestModelSwitchUsesConfiguredThinking(t *testing.T) {
 		model string
 		mode  llm.ThinkMode
 	}{{"secondary", llm.High}, {"primary", llm.Off}} {
-		ctrl.SetThinkLevel(llm.Low)
+		require.NoError(t, ctrl.SetThinkLevel(llm.Low))
 		require.NoError(t, ctrl.SetModel(tc.model))
 		assert.Equal(t, tc.mode, ctrl.ThinkLevel())
 		for _, err := range ctrl.engine.Loop(t.Context(), "hello", agent.LoopOpts{}) {
@@ -128,12 +128,12 @@ func TestModelSwitchExplicitHighRequestUnchanged(t *testing.T) {
 				sessionIDs = append(sessionIDs, ctrl.engine.SessionID())
 				// Seed identical history in fresh sessions so the extra setter is the only variable.
 				run(ctrl, "remember this exchange")
-				ctrl.SetThinkLevel(llm.Low)
+				require.NoError(t, ctrl.SetThinkLevel(llm.Low))
 				require.Equal(t, llm.Low, ctrl.ThinkLevel())
 				require.NoError(t, ctrl.SetModel("secondary"))
 				require.Equal(t, llm.High, ctrl.ThinkLevel())
 				if explicitHigh {
-					ctrl.SetThinkLevel(llm.High)
+					require.NoError(t, ctrl.SetThinkLevel(llm.High))
 				}
 				body := run(ctrl, "hello")
 				require.Equal(t, "secondary", body["model"])
