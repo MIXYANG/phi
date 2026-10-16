@@ -37,6 +37,9 @@ type ComposerPane struct {
 	theme components.Theme
 	cwd   string
 
+	// OnPaletteOpen refreshes root commands before Ctrl+K opens the palette.
+	OnPaletteOpen func()
+
 	Chat     chat.ChatInput
 	mention  mention.Picker
 	slash    mention.Picker
@@ -597,6 +600,9 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 				c.FocusChat()
 			} else {
 				c.HideCompleters()
+				if c.OnPaletteOpen != nil {
+					c.OnPaletteOpen()
+				}
 				c.palette.Show()
 				if c.requestFocus != nil {
 					c.requestFocus(&c.palette)

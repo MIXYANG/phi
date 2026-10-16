@@ -156,6 +156,7 @@ func NewEditor(
 	e.commands = builtins.Registry
 	e.sessions = builtins.Sessions
 	e.extCmds = builtins.Ext
+	e.composer.OnPaletteOpen = builtins.Ext.RefreshPalette
 
 	cmdCtx := commands.NewContext(e.bus, func(title string, cmds []palette.PaletteCommand) {
 		e.composer.PushPalette(title, cmds)

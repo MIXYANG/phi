@@ -18,6 +18,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Refresh command palette settings when opening it so the thinking selection
+  reflects the active model's configuration after switching models.
+
 ### Security
 
 ## [0.28.8] - 2026-10-15
