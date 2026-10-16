@@ -18,6 +18,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+### Security
+
+## [0.28.9] - 2026-10-16
+
+### Added
+
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
 - The `@@` ranges in diffs produced by the edit tool now anchor a hunk side
   that carries no lines on the line before it, so a hunk that only inserts or
   only deletes lines reports the ranges `diff -u` and `git diff` would report
@@ -1107,7 +1121,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.28.8...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.28.9...HEAD
+[0.28.9]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.9
 [0.28.8]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.8
 [0.28.7]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.7
 [0.28.6]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.6
