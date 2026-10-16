@@ -58,6 +58,11 @@ func (h *ExtCommands) Sync() {
 			debuglog.Logf("extension: command %q skipped (name already registered)", name)
 		}
 	}
+	h.RefreshPalette()
+}
+
+// RefreshPalette rebuilds commands from live settings without resyncing extensions.
+func (h *ExtCommands) RefreshPalette() {
 	var ctx Context
 	if h.CommandCtx != nil {
 		ctx = h.CommandCtx()

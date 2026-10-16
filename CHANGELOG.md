@@ -32,6 +32,54 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
+## [0.28.9] - 2026-10-16
+
+### Added
+
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+- The `@@` ranges in diffs produced by the edit tool now anchor a hunk side
+  that carries no lines on the line before it, so a hunk that only inserts or
+  only deletes lines reports the ranges `diff -u` and `git diff` would report
+  instead of starting one line past them.
+- Refresh command palette settings when opening it so the thinking selection
+  reflects the active model's configuration after switching models.
+
+### Security
+
+## [0.28.8] - 2026-10-15
+
+### Added
+
+- MCP is reachable through `mcp://` URLs on the regular tools: `ls mcp://`
+  lists servers, `ls mcp://<server>/tools/` lists tools, `read
+  mcp://<server>/tools/<tool>` shows a compact parameter summary, and `write
+  mcp://<server>/tools/<tool>` invokes the tool with the JSON argument object
+  as content. Invocations ask for approval through the write gate; browsing
+  stays read-tier.
+
+### Changed
+
+- The system prompt's MCP section teaches the `ls` / `read` / `write` URL
+  rhythm instead of the removed meta-tools.
+
+### Deprecated
+
+### Removed
+
+- The `mcp_list`, `mcp_inspect`, and `mcp_call` meta-tools; MCP now rides
+  `ls` / `read` / `write` via `mcp://` URLs with no extra tools registered.
+
+### Fixed
+
+### Security
+
 ## [0.28.7] - 2026-10-14
 
 ### Added
@@ -1085,7 +1133,9 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.28.7...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.28.9...HEAD
+[0.28.9]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.9
+[0.28.8]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.8
 [0.28.7]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.7
 [0.28.6]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.6
 [0.28.5]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.5
