@@ -179,6 +179,11 @@ permissions:
       - "go test ./..."
     deny:
       - "rm -rf *"
+  rules:                  # extra rules; deny > ask > allow, always
+    - kind: read
+      resource: url
+      decision: ask
+      reason: external lookup needs approval
 ```
 
 Built-in presets and thinking wire formats: [doc/models.md](doc/models.md).
@@ -413,10 +418,13 @@ Modes:
 | `autopilot`        | Fold `ask` → allow, run unattended.                 |
 | `headless-strict`  | Fold `ask` → deny (used by `phi run`).              |
 
-Per-tool rules: `bash.default` / `bash.allow` / `bash.deny` (exact command
-prefix matching). Global keys:
+Per-tool rules: `bash.default` / `bash.allow` / `bash.deny` (regexes against
+the command). `permissions.rules` adds your own rules by tool, kind, command,
+path, or workspace scope; they are evaluated strictest-first (`deny` > `ask` >
+`allow`), so a rule can tighten a policy but never loosen one. Global keys:
 `workspace_only_writes` (default true), `ask_timeout_sec`, and
-`dangerously_allow_all` (default false).
+`dangerously_allow_all` (default false). Full semantics and examples:
+[doc/permissions.md](doc/permissions.md).
 
 In the TUI, an approval dialog replaces the editor with options to approve,
 deny with feedback, or allow all for the session / for every session. The
