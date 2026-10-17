@@ -13,6 +13,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Models: gateway aliases and explicit `preset` bindings.
 - Models: per-model `request_parameters` overrides for all four APIs,
   including compaction.
+- Permissions: `permissions.rules` adds rules by tool, kind, command, path, or
+  workspace scope. Rules are evaluated strictest-first (`deny` > `ask` >
+  `allow`), so one can tighten a policy but never loosen it. See
+  [doc/permissions.md](doc/permissions.md).
 
 ### Changed
 

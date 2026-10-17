@@ -14,7 +14,6 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
@@ -142,7 +141,7 @@ func TestAgentSpawnWorkdirMatchesPermissionRequest(t *testing.T) {
 				agenttool.WithManager(mgr),
 				agenttool.WithWorkDir(func() string { return sessionDir }),
 			))
-			req, err := permission.ExtractAt("agent_spawn", json.RawMessage(args), sessionDir)
+			req, err := reg["agent_spawn"].Permission(json.RawMessage(args), sessionDir)
 			require.NoError(t, err)
 			_, err = reg["agent_spawn"].Run(t.Context(), json.RawMessage(args))
 			require.NoError(t, err)
