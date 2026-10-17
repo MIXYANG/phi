@@ -26,11 +26,11 @@ func newAgentTestRegistry(t *testing.T, runner job.RunnerFunc) (*job.Manager, to
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 	workdir := t.TempDir()
-	reg := tooldef.NewRegistry(agenttool.AgentTools(agenttool.AgentDeps{
-		Manager:  mgr,
-		ParentID: func() string { return "parent-1" },
-		WorkDir:  func() string { return workdir },
-	}))
+	reg := tooldef.NewRegistry(agenttool.AgentTools(
+		agenttool.WithManager(mgr),
+		agenttool.WithParentID(func() string { return "parent-1" }),
+		agenttool.WithWorkDir(func() string { return workdir }),
+	))
 	return mgr, reg
 }
 
@@ -138,10 +138,10 @@ func TestAgentSpawnWorkdirMatchesPermissionRequest(t *testing.T) {
 			})
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = mgr.Close(context.WithoutCancel(t.Context())) })
-			reg := tooldef.NewRegistry(agenttool.AgentTools(agenttool.AgentDeps{
-				Manager: mgr,
-				WorkDir: func() string { return sessionDir },
-			}))
+			reg := tooldef.NewRegistry(agenttool.AgentTools(
+				agenttool.WithManager(mgr),
+				agenttool.WithWorkDir(func() string { return sessionDir }),
+			))
 			req, err := permission.ExtractAt("agent_spawn", json.RawMessage(args), sessionDir)
 			require.NoError(t, err)
 			_, err = reg["agent_spawn"].Run(t.Context(), json.RawMessage(args))
