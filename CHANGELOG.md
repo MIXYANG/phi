@@ -10,6 +10,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [0.29.0] - 2026-10-18
+
+### Added
+
 - `/diff` takes file paths: `/diff @path` (the composer's file completion) and
   bare paths scope the overlay to those files, via a `--` separator so a file
   named like a branch still reaches git as a pathspec. Multiple paths and
@@ -1169,7 +1183,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.28.9...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.0
 [0.28.9]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.9
 [0.28.8]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.8
 [0.28.7]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.7
