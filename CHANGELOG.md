@@ -36,6 +36,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+- Dead code: unused `internal/util/clipboard` text-write path (`CopyText` and the
+  Windows UTF-16 writer); copies go through the xui clipboard helper.
+
 ### Fixed
 
 - Anthropic: correctly track input and cache token counts in streaming responses.
