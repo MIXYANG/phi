@@ -3,8 +3,6 @@ package anthropic
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -98,11 +96,7 @@ func BuildRequest(
 		}
 		req.Tools = append(req.Tools, tool)
 	}
-	prefix := sha256.New()
-	prefixValid := writePrefix(prefix, struct {
-		System []sysBlock      `json:"system"`
-		Tools  []anthropicTool `json:"tools"`
-	}{req.System, req.Tools})
+	var prefix nativePrefix
 	endpoint := endpointFingerprint(cfg.BaseURL)
 	toolIDs := make(map[string]string)
 
@@ -134,14 +128,10 @@ func BuildRequest(
 
 		case llm.RoleAssistant:
 			msg := anthropicMessage{Role: "assistant"}
-			// Replay the captured blocks only when this turn's prefix is the
-			// one they were captured under. The digest is computed last: most
-			// assistant messages carry no provider state and short-circuit
-			// before it.
-			if state := m.ProviderState; state != nil && state.Provider == llm.Anthropic &&
-				state.Model == cfg.Name && state.Endpoint == endpoint && prefixValid &&
-				len(state.Data.Items) > 0 && req.Thinking != nil &&
-				state.Data.Prefix == hex.EncodeToString(prefix.Sum(nil)) {
+			state := m.ProviderState
+			if state != nil && state.Provider == llm.Anthropic &&
+				state.Model == cfg.Name && state.Endpoint == endpoint && req.Thinking != nil &&
+				len(state.Data.Items) > 0 && state.Data.Prefix != "" && state.Data.Prefix == prefix.sum(&req) {
 				items := make([]json.RawMessage, len(state.Data.Items))
 				for j, item := range state.Data.Items {
 					items[j] = bytes.Clone(item)
@@ -156,10 +146,11 @@ func BuildRequest(
 					blocks = append(blocks, anthropicContentBlock{Type: "text", Text: m.Content})
 				}
 				for _, tc := range m.ToolCalls {
-					toolIDs[tc.ID] = normalizeToolCallID(tc.ID)
+					id := normalizeToolCallID(tc.ID)
+					toolIDs[tc.ID] = id
 					blocks = append(blocks, anthropicContentBlock{
 						Type:  "tool_use",
-						ID:    normalizeToolCallID(tc.ID),
+						ID:    id,
 						Name:  tc.Function.Name,
 						Input: toolUseInput(tc.Function.Arguments),
 					})
@@ -195,17 +186,6 @@ func BuildRequest(
 		default:
 			continue
 		}
-		prefixValid = writePrefix(prefix, req.Messages[len(req.Messages)-1]) && prefixValid
-	}
-	if prefixValid {
-		req.native = &llm.ProviderState{
-			Provider: llm.Anthropic,
-			Model:    cfg.Name,
-			Endpoint: endpoint,
-			Data: llm.ProviderData{
-				Prefix: hex.EncodeToString(prefix.Sum(nil)),
-			},
-		}
 	}
 
 	// Pin prompt caching to the tail of the last user message. Image blocks
@@ -231,6 +211,18 @@ func BuildRequest(
 		}
 	}
 
+	if prefix.hash != nil {
+		if sum := prefix.sum(&req); sum != "" {
+			req.native = &llm.ProviderState{
+				Provider: llm.Anthropic,
+				Model:    cfg.Name,
+				Endpoint: endpoint,
+				Data:     llm.ProviderData{Prefix: sum},
+			}
+		}
+	} else {
+		req.nativeInput = snapshotNativeInput(&req)
+	}
 	return req
 }
 
@@ -379,6 +371,12 @@ func Stream(
 			yield(llm.StreamEvent{}, err)
 			return
 		}
+		native := req.native
+		if native != nil && (native.Model != cfg.Name ||
+			native.Endpoint != endpointFingerprint(cfg.BaseURL)) {
+			native = nil
+		}
+		input := req.nativeInput
 
 		httpReq, err := newMessagesHTTPRequest(ctx, cfg, body, true)
 		if err != nil {
@@ -401,13 +399,17 @@ func Stream(
 
 		processStream(httpResp.Body, func(ev llm.StreamEvent, err error) bool {
 			if ev.Final != nil && ev.Final.ProviderState != nil {
-				if req.native == nil {
-					ev.Final.ProviderState = nil
+				var state *llm.ProviderState
+				if native != nil {
+					copy := *native
+					state = &copy
 				} else {
-					state := *req.native
-					state.Data.Items = ev.Final.ProviderState.Data.Items
-					ev.Final.ProviderState = &state
+					state = nativeState(input, cfg)
 				}
+				if state != nil {
+					state.Data.Items = ev.Final.ProviderState.Data.Items
+				}
+				ev.Final.ProviderState = state
 			}
 			return yield(ev, err)
 		})
@@ -431,6 +433,36 @@ type streamEvent struct {
 		Signature   string `json:"signature"`
 		PartialJSON string `json:"partial_json"`
 	} `json:"delta"`
+}
+
+// Usage updates are cumulative: absent fields keep their counts, explicit zeros replace them.
+type streamUsage struct {
+	InputTokens  *int `json:"input_tokens"`
+	CacheRead    *int `json:"cache_read_input_tokens"`
+	CacheCreate  *int `json:"cache_creation_input_tokens"`
+	OutputTokens *int `json:"output_tokens"`
+}
+
+func (u streamUsage) apply(usage *llm.Usage) {
+	if u.InputTokens != nil {
+		usage.PromptTokens = *u.InputTokens
+	}
+	if u.OutputTokens != nil {
+		usage.CompletionTokens = *u.OutputTokens
+	}
+	if u.CacheRead != nil || u.CacheCreate != nil {
+		var details llm.PromptTokensDetails
+		if usage.PromptTokensDetails != nil {
+			details = *usage.PromptTokensDetails
+		}
+		if u.CacheRead != nil {
+			details.CachedTokens = *u.CacheRead
+		}
+		if u.CacheCreate != nil {
+			details.CacheWriteTokens = *u.CacheCreate
+		}
+		usage.PromptTokensDetails = &details
+	}
 }
 
 func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
@@ -458,34 +490,23 @@ stream:
 
 		var ev streamEvent
 		if err := json.Unmarshal(payloadLine, &ev); err != nil {
-			native.invalid = true
+			native.discard()
 			continue
 		}
 
 		switch ev.Type {
 		case "message_start":
 			var msg struct {
-				Usage struct {
-					InputTokens int `json:"input_tokens"`
-					CacheRead   int `json:"cache_read_input_tokens"`
-					CacheCreate int `json:"cache_creation_input_tokens"`
-				} `json:"usage"`
+				Usage streamUsage `json:"usage"`
 			}
 			if len(ev.Message) > 0 {
 				if err := json.Unmarshal(ev.Message, &msg); err != nil {
 					continue
 				}
 			}
-			u := msg.Usage
 			// Anthropic reports disjoint buckets already: input_tokens excludes
 			// both cache reads and cache writes, so it needs no splitting.
-			usage.PromptTokens = u.InputTokens
-			if u.CacheRead > 0 || u.CacheCreate > 0 {
-				usage.PromptTokensDetails = &llm.PromptTokensDetails{
-					CachedTokens:     u.CacheRead,
-					CacheWriteTokens: u.CacheCreate,
-				}
-			}
+			msg.Usage.apply(&usage)
 
 		case "content_block_start":
 			native.start(ev.Index, ev.ContentBlock)
@@ -498,7 +519,7 @@ stream:
 				Input    json.RawMessage `json:"input"`
 			}
 			if json.Unmarshal(ev.ContentBlock, &start) != nil {
-				native.invalid = true
+				native.discard()
 				continue
 			}
 			if start.Type == "tool_use" {
@@ -588,15 +609,13 @@ stream:
 			}
 
 		case "message_delta":
-			var u struct {
-				OutputTokens int `json:"output_tokens"`
-			}
+			var u streamUsage
 			if len(ev.Usage) > 0 {
 				if err := json.Unmarshal(ev.Usage, &u); err != nil {
 					continue
 				}
 			}
-			usage.CompletionTokens = u.OutputTokens
+			u.apply(&usage)
 		case "error":
 			err := fmt.Errorf("anthropic stream error: %s", llm.APIErrorMessage(payloadLine))
 			yield(llm.StreamEvent{Type: llm.StreamEventTypeError, Err: err.Error()}, err)
