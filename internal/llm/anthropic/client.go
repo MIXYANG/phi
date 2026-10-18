@@ -435,6 +435,36 @@ type streamEvent struct {
 	} `json:"delta"`
 }
 
+// Usage updates are cumulative: absent fields keep their counts, explicit zeros replace them.
+type streamUsage struct {
+	InputTokens  *int `json:"input_tokens"`
+	CacheRead    *int `json:"cache_read_input_tokens"`
+	CacheCreate  *int `json:"cache_creation_input_tokens"`
+	OutputTokens *int `json:"output_tokens"`
+}
+
+func (u streamUsage) apply(usage *llm.Usage) {
+	if u.InputTokens != nil {
+		usage.PromptTokens = *u.InputTokens
+	}
+	if u.OutputTokens != nil {
+		usage.CompletionTokens = *u.OutputTokens
+	}
+	if u.CacheRead != nil || u.CacheCreate != nil {
+		var details llm.PromptTokensDetails
+		if usage.PromptTokensDetails != nil {
+			details = *usage.PromptTokensDetails
+		}
+		if u.CacheRead != nil {
+			details.CachedTokens = *u.CacheRead
+		}
+		if u.CacheCreate != nil {
+			details.CacheWriteTokens = *u.CacheCreate
+		}
+		usage.PromptTokensDetails = &details
+	}
+}
+
 func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 	var (
 		content     strings.Builder
@@ -467,27 +497,16 @@ stream:
 		switch ev.Type {
 		case "message_start":
 			var msg struct {
-				Usage struct {
-					InputTokens int `json:"input_tokens"`
-					CacheRead   int `json:"cache_read_input_tokens"`
-					CacheCreate int `json:"cache_creation_input_tokens"`
-				} `json:"usage"`
+				Usage streamUsage `json:"usage"`
 			}
 			if len(ev.Message) > 0 {
 				if err := json.Unmarshal(ev.Message, &msg); err != nil {
 					continue
 				}
 			}
-			u := msg.Usage
 			// Anthropic reports disjoint buckets already: input_tokens excludes
 			// both cache reads and cache writes, so it needs no splitting.
-			usage.PromptTokens = u.InputTokens
-			if u.CacheRead > 0 || u.CacheCreate > 0 {
-				usage.PromptTokensDetails = &llm.PromptTokensDetails{
-					CachedTokens:     u.CacheRead,
-					CacheWriteTokens: u.CacheCreate,
-				}
-			}
+			msg.Usage.apply(&usage)
 
 		case "content_block_start":
 			native.start(ev.Index, ev.ContentBlock)
@@ -590,15 +609,13 @@ stream:
 			}
 
 		case "message_delta":
-			var u struct {
-				OutputTokens int `json:"output_tokens"`
-			}
+			var u streamUsage
 			if len(ev.Usage) > 0 {
 				if err := json.Unmarshal(ev.Usage, &u); err != nil {
 					continue
 				}
 			}
-			usage.CompletionTokens = u.OutputTokens
+			u.apply(&usage)
 		case "error":
 			err := fmt.Errorf("anthropic stream error: %s", llm.APIErrorMessage(payloadLine))
 			yield(llm.StreamEvent{Type: llm.StreamEventTypeError, Err: err.Error()}, err)

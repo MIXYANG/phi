@@ -25,6 +25,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Anthropic: correctly track input and cache token counts in streaming responses.
 - Gemini: tool calls carry the arguments the model produced instead of a
   decoded and re-encoded copy. The round trip reordered the keys and rounded
   integers through float64, so a large one reached the API as a different
