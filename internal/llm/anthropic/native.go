@@ -9,6 +9,7 @@ import (
 	"hash"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pulseaiclub/phi/internal/llm"
 )
@@ -200,8 +201,8 @@ func endpointFingerprint(baseURL string) string {
 // object key order is irrelevant, and cache markers are not signature inputs.
 func writePrefix(h hash.Hash, value any) bool {
 	if msg, ok := value.(anthropicMessage); ok {
-		if _, text := msg.Content.(string); text {
-			// Text needs no JSON decoding or number normalization.
+		if text, ok := msg.Content.(string); ok && utf8.ValidString(text) {
+			// Invalid UTF-8 needs the JSON round trip to preserve saved fingerprints.
 			return writePrefixObject(h, map[string]any{"role": msg.Role, "content": msg.Content})
 		}
 	}
