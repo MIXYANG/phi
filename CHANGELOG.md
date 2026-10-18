@@ -16,6 +16,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Anthropic: reduce native-state tracking overhead.
 - Config editor: cache resolved rows across redraws.
 
 ### Deprecated
