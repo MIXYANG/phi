@@ -39,6 +39,13 @@ type BashPredictor interface {
 	Predict(ctx context.Context, typed string) ([]controller.BashSuggestion, error)
 }
 
+// PromptHistory is the composer's recall store: the last N submitted prompts
+// for the current project, oldest first.
+type PromptHistory interface {
+	Entries() []string
+	Append(text string) error
+}
+
 // BusyChecker is the submit side of ComposerPane wiring (avoids composer→submit import).
 type BusyChecker interface {
 	RunningBash() bool

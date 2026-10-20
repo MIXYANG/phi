@@ -1,5 +1,6 @@
-// Package shellhist stores project-wide history of user shell commands.
-// Callers supply the canonical sessions directory and only explicit user ! commands.
+// Package shellhist stores project-wide history of what the user typed: shell
+// commands (store.go) and submitted composer prompts (prompt.go). Callers
+// supply the canonical sessions directory.
 package shellhist
 
 import (

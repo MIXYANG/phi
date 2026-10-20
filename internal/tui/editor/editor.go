@@ -102,6 +102,11 @@ func NewEditor(
 			))
 		}
 	}
+	// Prompt recall is opt-in: it persists what the user typed under the home
+	// directory, so it stays off until PHI_PROMPT_HISTORY turns it on.
+	if dir := ctrl.SessionDir(); dir != "" && shellhist.PromptsEnabled() {
+		e.composer.SetPromptHistory(shellhist.NewPromptHistory(dir))
+	}
 	e.transcript = transcript.NewTranscriptPane(theme, e.footer.Spinner(), "Phi "+version.Version)
 	e.transcript.SetUsageCallback(e.footer.UpdateTokenDisplay)
 	e.footer.BindComposer(e.composer)
