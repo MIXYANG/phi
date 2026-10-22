@@ -27,6 +27,8 @@ export const TYPE_SHUTDOWN_ACK = 9;
 export const TYPE_NOTIFY = 10;
 export const TYPE_HOST_REQUEST = 11;
 export const TYPE_TOOL_DETAIL_RESULT = 12;
+export const TYPE_REGISTER_MODEL = 13;
+export const TYPE_MODEL_STREAM = 14;
 
 export const TYPE_HELLO_ACK = 100;
 export const TYPE_COMMAND_INVOKED = 101;
@@ -37,6 +39,8 @@ export const TYPE_SHUTDOWN = 105;
 export const TYPE_HOST_RESULT = 106;
 export const TYPE_SESSION_META = 107;
 export const TYPE_TOOL_DETAIL_INVOKE = 108;
+export const TYPE_MODEL_INVOKE = 109;
+export const TYPE_MODEL_CANCEL = 110;
 
 /** Flag bits in the header. */
 export const FLAG_HAS_ID = 1 << 0; // id field is meaningful (RPC correlation)
@@ -46,6 +50,12 @@ export const CAP_COMMANDS = 1 << 0;
 export const CAP_TOOLS = 1 << 1;
 export const CAP_EVENTS = 1 << 2;
 export const CAP_INTERCEPT = 1 << 3;
+export const CAP_MODELS = 1 << 4;
+
+/** RegisterModel.Conn values: the host dials BaseURL, or the extension
+ * serves the stream itself (mirrors Go's ConnDirect / ConnExt). */
+export const CONN_DIRECT = "";
+export const CONN_EXT = "ext";
 
 /** Lifecycle event codes (compact on the wire; strings only at SDK edges).
  *

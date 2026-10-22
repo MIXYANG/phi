@@ -372,6 +372,48 @@ m.RegisterModel(ext.Model{
 })
 ```
 
+```rust
+m.register_model(
+    phi::Model::served("corp-proxy", |req, emit| {
+        // Forward req.system_prompt / req.messages / req.think upstream; emit
+        // fragments as they arrive. Return Ok(()) to finish (the SDK sends
+        // done), Err to fail the stream.
+        emit(phi::ModelEvent {
+            content: format!("hello from {}", req.model),
+            usage: Some(phi::Usage {
+                prompt_tokens: 1, completion_tokens: 3, total_tokens: 4,
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+    })
+    .context_window(272000)
+    .image_enabled(true)
+    .think_enabled(true),
+);
+```
+
+```ts
+import { CONN_EXT, Extension } from "@pulseaiclub/phi-ext";
+
+m.registerModel({
+  name: "corp-proxy",
+  conn: CONN_EXT,
+  contextWindow: 272000,
+  imageEnabled: true,
+  thinkEnabled: true,
+  stream: async (req, emit, signal) => {
+    // Forward req.systemPrompt / req.messages / req.think upstream; emit
+    // fragments as they arrive. Return to finish (the SDK sends done),
+    // throw to fail the stream. Abort upstream work when `signal` fires.
+    await emit({
+      content: `hello from ${req.model}`,
+      usage: { prompt_tokens: 1, completion_tokens: 3, total_tokens: 4 },
+    });
+  },
+});
+```
+
 Contract notes:
 
 - **Deltas only.** Emit content / reasoning / tool-call fragments — never the
@@ -391,9 +433,13 @@ Contract notes:
 - The `/model` palette snapshots names at startup; after installing or
   reloading a model extension, `/model <name>` works immediately, the palette
   catches up on the next start.
-- Go SDK only today — the Rust and TS SDKs do not expose model registration
-  yet. The wire (`TypeRegisterModel`, `TypeModelInvoke`, `TypeModelStream`,
-  `TypeModelCancel`) is stable for SDK ports.
+- Go, Rust and TS SDKs expose model registration (`m.RegisterModel` /
+  `phi::Model::direct` + `Extension::register_model`, served handlers via
+  `Model::served` / `conn: CONN_EXT` + a `stream` callback). Rust streams run
+  on the single-threaded loop, so `ModelCancel` is only observed between
+  requests — cancellation stays best-effort there. The TS pump keeps reading
+  while an async stream runs, so `ModelCancel` aborts the handler's
+  `AbortSignal` mid-stream, like Go's ctx.
 
 ## Install from GitHub
 
