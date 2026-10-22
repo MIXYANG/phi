@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+## [0.29.1] - 2026-10-22
+
+### Added
+
 - Extensions can register models (`RegisterModel`) in two connection modes:
   direct-connect — the host dials `base_url` like a config.yaml entry — or
   extension-served (`Conn: ext`), where the extension proxies or generates
@@ -1205,7 +1209,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.0...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.1...HEAD
+[0.29.1]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.1
 [0.29.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.0
 [0.28.9]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.9
 [0.28.8]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.8
