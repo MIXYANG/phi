@@ -42,7 +42,7 @@ type ContinueFunc func(ctx context.Context, maxRounds int) (bool, error)
 // and yields session.Event for the TUI reducer. Context compaction is owned
 // here so Session stays a thin message store.
 type Engine struct {
-	client       *llmclient.Client
+	client       chatClient
 	executor     *Executor
 	maxRounds    atomic.Int64
 	modelCfg     llm.ModelConfig
@@ -89,9 +89,24 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 	engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
 	engine.extensions.SetMeta(engine.SessionID(), engine.SessionCwd())
 	toolList := engine.buildToolList(engine.baseTools)
-	engine.client = llmclient.NewClient(model, engine.hooks, tooldef.Definitions(toolList), engine.systemPrompt())
+	engine.client = engine.newChatClient(toolList)
 	engine.bindExecutor(tooldef.NewRegistry(toolList))
 	return engine, nil
+}
+
+// newChatClient picks the transport for the active model: an extension-served
+// connection when the model name is registered Conn "ext" (an extension model
+// shadows a config.yaml entry with the same name), else the builtin HTTP
+// client. Hooks only apply to the builtin path — extension-served requests
+// never pass through a provider request builder.
+func (engine *Engine) newChatClient(tools []tooldef.Tool) chatClient {
+	defs := tooldef.Definitions(tools)
+	if route, ok := engine.extensions.LookupModel(engine.modelCfg.Name); ok && route.ExtConn() {
+		return newExtModelClient(
+			engine.extensions, route, engine.modelCfg, defs, engine.systemPrompt(),
+		)
+	}
+	return llmclient.NewClient(engine.modelCfg, engine.hooks, defs, engine.systemPrompt())
 }
 
 func (engine *Engine) buildToolList(base []tooldef.Tool) []tooldef.Tool {
@@ -168,12 +183,7 @@ func (engine *Engine) SetMaxRounds(n int) {
 func (engine *Engine) rebindTools() {
 	engine.extensions.SetBaseTools(engine.buildCoreTools(engine.baseTools))
 	toolList := engine.buildToolList(engine.baseTools)
-	engine.client = llmclient.NewClient(
-		engine.modelCfg,
-		engine.hooks,
-		tooldef.Definitions(toolList),
-		engine.systemPrompt(),
-	)
+	engine.client = engine.newChatClient(toolList)
 	engine.bindExecutor(tooldef.NewRegistry(toolList))
 }
 

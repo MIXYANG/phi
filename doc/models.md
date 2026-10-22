@@ -187,6 +187,21 @@ without replacing it or changing `maxOutputTokens` / `candidateCount` (including
 snake_case aliases). Anthropic validates final thinking budgets. Vendor fields
 belong directly under `request_parameters`, not an `extra_body` wrapper.
 
+## Models from extensions
+
+Extensions can add connections at runtime without touching config.yaml:
+
+- **Direct-connect** — the host dials `base_url` with the registered
+  `api`/`api_key`, same as a config entry.
+- **Extension-served** (`Conn: ext`) — the extension proxies or generates
+  every request itself and streams deltas back; see
+  [extensions.md § Models](extensions.md#models-from-extensions).
+
+Extension names shadow config entries with the same name; preset resolution,
+thinking validation and context-window handling match config entries. The
+`/model` palette snapshots names at startup, so restart once after installing
+a model extension.
+
 ## Related
 
 - Config overview: [README § Configuration](../README.md#configuration)

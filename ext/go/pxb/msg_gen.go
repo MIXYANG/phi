@@ -264,6 +264,255 @@ func DecodeRegisterTool(b []byte) (RegisterTool, error) {
 	return msg, err
 }
 
+// RegisterModel field tags.
+const (
+	fRegisterModelName          uint16 = 1
+	fRegisterModelAPI           uint16 = 2
+	fRegisterModelBaseURL       uint16 = 3
+	fRegisterModelAPIKey        uint16 = 4
+	fRegisterModelPreset        uint16 = 5
+	fRegisterModelContextWindow uint16 = 6
+	fRegisterModelImageEnabled  uint16 = 7
+	fRegisterModelThinkEnabled  uint16 = 8
+	fRegisterModelThinkLevel    uint16 = 9
+	fRegisterModelConn          uint16 = 10
+)
+
+// sizeRegisterModel is the exact wire size of msg.
+func sizeRegisterModel(msg RegisterModel) int {
+	n := 0
+	n += strSize(msg.Name)
+	n += strSize(msg.API)
+	n += strSize(msg.BaseURL)
+	n += strSize(msg.APIKey)
+	n += strSize(msg.Preset)
+	if msg.ContextWindow > 0 {
+		n += u64FieldSize
+	}
+	if msg.ImageEnabled {
+		n += u64FieldSize
+	}
+	if msg.ThinkEnabled {
+		n += u64FieldSize
+	}
+	n += strSize(msg.ThinkLevel)
+	n += strSize(msg.Conn)
+	return n
+}
+
+func EncodeRegisterModel(msg RegisterModel) []byte {
+	n := sizeRegisterModel(msg)
+	if n == 0 {
+		return nil
+	}
+	fw := sizedWriter(n)
+	fw.PutString(fRegisterModelName, msg.Name)
+	fw.PutString(fRegisterModelAPI, msg.API)
+	fw.PutString(fRegisterModelBaseURL, msg.BaseURL)
+	fw.PutString(fRegisterModelAPIKey, msg.APIKey)
+	fw.PutString(fRegisterModelPreset, msg.Preset)
+	if msg.ContextWindow > 0 {
+		fw.PutU32(fRegisterModelContextWindow, msg.ContextWindow)
+	}
+	if msg.ImageEnabled {
+		fw.PutBool(fRegisterModelImageEnabled, msg.ImageEnabled)
+	}
+	if msg.ThinkEnabled {
+		fw.PutBool(fRegisterModelThinkEnabled, msg.ThinkEnabled)
+	}
+	fw.PutString(fRegisterModelThinkLevel, msg.ThinkLevel)
+	fw.PutString(fRegisterModelConn, msg.Conn)
+	return fw.Bytes()
+}
+
+func DecodeRegisterModel(b []byte) (RegisterModel, error) {
+	var msg RegisterModel
+	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+		switch tag {
+		case fRegisterModelName:
+			s, err := takeString(kind, fr)
+			msg.Name = s
+			return err
+		case fRegisterModelAPI:
+			s, err := takeString(kind, fr)
+			msg.API = s
+			return err
+		case fRegisterModelBaseURL:
+			s, err := takeString(kind, fr)
+			msg.BaseURL = s
+			return err
+		case fRegisterModelAPIKey:
+			s, err := takeString(kind, fr)
+			msg.APIKey = s
+			return err
+		case fRegisterModelPreset:
+			s, err := takeString(kind, fr)
+			msg.Preset = s
+			return err
+		case fRegisterModelContextWindow:
+			v, err := takeU64(kind, fr)
+			msg.ContextWindow = uint32(v) //nolint:gosec // G115: u32 by protocol
+			return err
+		case fRegisterModelImageEnabled:
+			v, err := takeU64(kind, fr)
+			msg.ImageEnabled = v != 0
+			return err
+		case fRegisterModelThinkEnabled:
+			v, err := takeU64(kind, fr)
+			msg.ThinkEnabled = v != 0
+			return err
+		case fRegisterModelThinkLevel:
+			s, err := takeString(kind, fr)
+			msg.ThinkLevel = s
+			return err
+		case fRegisterModelConn:
+			s, err := takeString(kind, fr)
+			msg.Conn = s
+			return err
+		default:
+			return fr.Skip(kind)
+		}
+	})
+	return msg, err
+}
+
+// ModelInvoke field tags.
+const (
+	fModelInvokeModel        uint16 = 1
+	fModelInvokeMessagesJSON uint16 = 2
+	fModelInvokeToolsJSON    uint16 = 3
+	fModelInvokeSystemPrompt uint16 = 4
+	fModelInvokeThink        uint16 = 5
+)
+
+// sizeModelInvoke is the exact wire size of msg.
+func sizeModelInvoke(msg ModelInvoke) int {
+	n := 0
+	n += strSize(msg.Model)
+	n += blobSize(msg.MessagesJSON)
+	n += blobSize(msg.ToolsJSON)
+	n += strSize(msg.SystemPrompt)
+	n += strSize(msg.Think)
+	return n
+}
+
+func EncodeModelInvoke(msg ModelInvoke) []byte {
+	n := sizeModelInvoke(msg)
+	if n == 0 {
+		return nil
+	}
+	fw := sizedWriter(n)
+	fw.PutString(fModelInvokeModel, msg.Model)
+	fw.PutBytes(fModelInvokeMessagesJSON, msg.MessagesJSON)
+	fw.PutBytes(fModelInvokeToolsJSON, msg.ToolsJSON)
+	fw.PutString(fModelInvokeSystemPrompt, msg.SystemPrompt)
+	fw.PutString(fModelInvokeThink, msg.Think)
+	return fw.Bytes()
+}
+
+func DecodeModelInvoke(b []byte) (ModelInvoke, error) {
+	var msg ModelInvoke
+	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+		switch tag {
+		case fModelInvokeModel:
+			s, err := takeString(kind, fr)
+			msg.Model = s
+			return err
+		case fModelInvokeMessagesJSON:
+			p, err := takeBytes(kind, fr)
+			msg.MessagesJSON = append([]byte(nil), p...)
+			return err
+		case fModelInvokeToolsJSON:
+			p, err := takeBytes(kind, fr)
+			msg.ToolsJSON = append([]byte(nil), p...)
+			return err
+		case fModelInvokeSystemPrompt:
+			s, err := takeString(kind, fr)
+			msg.SystemPrompt = s
+			return err
+		case fModelInvokeThink:
+			s, err := takeString(kind, fr)
+			msg.Think = s
+			return err
+		default:
+			return fr.Skip(kind)
+		}
+	})
+	return msg, err
+}
+
+// ModelStreamEvent field tags.
+const (
+	fModelStreamEventType      uint16 = 1
+	fModelStreamEventContent   uint16 = 2
+	fModelStreamEventReasoning uint16 = 3
+	fModelStreamEventToolCalls uint16 = 4
+	fModelStreamEventUsageJSON uint16 = 5
+	fModelStreamEventError     uint16 = 6
+)
+
+// sizeModelStreamEvent is the exact wire size of msg.
+func sizeModelStreamEvent(msg ModelStreamEvent) int {
+	n := 0
+	n += strSize(msg.Type)
+	n += strSize(msg.Content)
+	n += strSize(msg.Reasoning)
+	n += blobSize(msg.ToolCalls)
+	n += blobSize(msg.UsageJSON)
+	n += strSize(msg.Error)
+	return n
+}
+
+func EncodeModelStreamEvent(msg ModelStreamEvent) []byte {
+	n := sizeModelStreamEvent(msg)
+	if n == 0 {
+		return nil
+	}
+	fw := sizedWriter(n)
+	fw.PutString(fModelStreamEventType, msg.Type)
+	fw.PutString(fModelStreamEventContent, msg.Content)
+	fw.PutString(fModelStreamEventReasoning, msg.Reasoning)
+	fw.PutBytes(fModelStreamEventToolCalls, msg.ToolCalls)
+	fw.PutBytes(fModelStreamEventUsageJSON, msg.UsageJSON)
+	fw.PutString(fModelStreamEventError, msg.Error)
+	return fw.Bytes()
+}
+
+func DecodeModelStreamEvent(b []byte) (ModelStreamEvent, error) {
+	var msg ModelStreamEvent
+	err := Walk(b, func(tag uint16, kind uint8, fr *FieldReader) error {
+		switch tag {
+		case fModelStreamEventType:
+			s, err := takeString(kind, fr)
+			msg.Type = s
+			return err
+		case fModelStreamEventContent:
+			s, err := takeString(kind, fr)
+			msg.Content = s
+			return err
+		case fModelStreamEventReasoning:
+			s, err := takeString(kind, fr)
+			msg.Reasoning = s
+			return err
+		case fModelStreamEventToolCalls:
+			p, err := takeBytes(kind, fr)
+			msg.ToolCalls = append([]byte(nil), p...)
+			return err
+		case fModelStreamEventUsageJSON:
+			p, err := takeBytes(kind, fr)
+			msg.UsageJSON = append([]byte(nil), p...)
+			return err
+		case fModelStreamEventError:
+			s, err := takeString(kind, fr)
+			msg.Error = s
+			return err
+		default:
+			return fr.Skip(kind)
+		}
+	})
+	return msg, err
+}
+
 // ToolDetailResult field tags.
 const (
 	fToolDetailResultDetail uint16 = 1

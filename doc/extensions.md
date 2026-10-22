@@ -342,6 +342,59 @@ cp -r dist phi.yaml ~/.phi/extensions/hello/
 
 Reload: **Ctrl+K → extensions → reload**.
 
+## Models from extensions
+
+Extensions can register models the host can switch to — `/model`, the startup
+palette, sub-agent role models and `agents.models` all accept them. Two
+connection methods on `RegisterModel.Conn`:
+
+- **Direct-connect** (`Conn: ""`) — the host dials `BaseURL` itself with the
+  given `api`/`api_key`, exactly like a `models[]` entry in config.yaml.
+- **Extension-served** (`Conn: ext.ConnExt`) — the extension *is* the
+  connection: each chat completion arrives as a `ModelInvoke` frame, the
+  handler streams deltas back as `ModelStreamEvent` frames, and the host
+  assembles the final assistant message. Use it to proxy an upstream, speak a
+  custom wire protocol, or generate locally.
+
+```go
+m.RegisterModel(ext.Model{
+	Name: "corp-proxy", Conn: ext.ConnExt,
+	ContextWindow: 272000, ImageEnabled: true, ThinkEnabled: true,
+	Stream: func(ctx context.Context, req ext.ModelRequest, emit func(ext.ModelEvent) error) error {
+		// Forward req.SystemPrompt / req.Messages / req.Think upstream; emit
+		// fragments as they arrive. Return nil to finish (the SDK sends done),
+		// an error to fail the stream.
+		return emit(ext.ModelEvent{
+			Content: "hello from " + req.Model,
+			Usage:   &ext.Usage{PromptTokens: 1, CompletionTokens: 3, TotalTokens: 4},
+		})
+	},
+})
+```
+
+Contract notes:
+
+- **Deltas only.** Emit content / reasoning / tool-call fragments — never the
+  accumulated text. Tool calls follow the OpenAI streaming convention: the
+  first fragment of an index carries `ID`/`Type`/`Name`, later ones append
+  `Arguments`. The host accumulates the final message and attaches the last
+  `Usage` seen for context-window accounting.
+- **Concurrency.** Handlers run on their own goroutine and may be invoked
+  concurrently (parallel sub-agents share the process) — guard shared state.
+- **Cancellation is cooperative.** On Esc the host abandons the stream and
+  sends a best-effort `ModelCancel`; respect `ctx` when forwarding upstream.
+  A handler that ignores it runs to completion while its late frames are
+  dropped.
+- **Precedence.** Extension model names shadow config.yaml entries with the
+  same name, and the first extension to register a name wins. Direct-connect
+  registrations need `base_url`.
+- The `/model` palette snapshots names at startup; after installing or
+  reloading a model extension, `/model <name>` works immediately, the palette
+  catches up on the next start.
+- Go SDK only today — the Rust and TS SDKs do not expose model registration
+  yet. The wire (`TypeRegisterModel`, `TypeModelInvoke`, `TypeModelStream`,
+  `TypeModelCancel`) is stable for SDK ports.
+
 ## Install from GitHub
 
 ```bash

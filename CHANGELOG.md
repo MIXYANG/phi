@@ -10,6 +10,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Extensions can register models (`RegisterModel`) in two connection modes:
+  direct-connect — the host dials `base_url` like a config.yaml entry — or
+  extension-served (`Conn: ext`), where the extension proxies or generates
+  every request itself and streams deltas back over PXB with cooperative
+  cancel. Extension model names shadow same-name config entries and work in
+  `/model`, sub-agent role models and the startup palette. Go SDK only for
+  now; the wire is documented for future Rust/TS ports.
 - Composer recalls the last 10 submitted prompts per project with Up/Down (or
   Ctrl+P/Ctrl+N), persisted under the project's session directory. Slash and
   shell commands are not recorded. Off by default: set `PHI_PROMPT_HISTORY=on`

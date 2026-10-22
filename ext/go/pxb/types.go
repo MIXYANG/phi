@@ -26,6 +26,8 @@ const (
 	TypeNotify            uint16 = 10
 	TypeHostRequest       uint16 = 11 // ext→host RPC (send_user_message, …)
 	TypeToolDetailResult  uint16 = 12 // ext→host reply to TypeToolDetailInvoke
+	TypeRegisterModel     uint16 = 13 // ext→host model registration (direct-connect or ext-served)
+	TypeModelStream       uint16 = 14 // ext→host stream event for a ModelInvoke (echoes its frame ID)
 
 	TypeHelloAck         uint16 = 100
 	TypeCommandInvoked   uint16 = 101
@@ -36,6 +38,14 @@ const (
 	TypeHostResult       uint16 = 106 // host→ext reply to TypeHostRequest
 	TypeSessionMeta      uint16 = 107 // host→ext session/cwd push
 	TypeToolDetailInvoke uint16 = 108 // host→ext DetailFromArgs
+	TypeModelInvoke      uint16 = 109 // host→ext chat completion on a Conn "ext" model
+	TypeModelCancel      uint16 = 110 // host→ext best-effort stop; ID echoes the ModelInvoke
+)
+
+// Model connection methods (RegisterModel.Conn).
+const (
+	ConnDirect string = ""    // host dials BaseURL itself
+	ConnExt    string = "ext" // extension serves each request via ModelInvoke
 )
 
 // Flag bits in the header.
@@ -49,6 +59,7 @@ const (
 	CapTools     uint32 = 1 << 1
 	CapEvents    uint32 = 1 << 2
 	CapIntercept uint32 = 1 << 3
+	CapModels    uint32 = 1 << 4
 )
 
 // Event name codes (compact on the wire; strings only at SDK edges).
