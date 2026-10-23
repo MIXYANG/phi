@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"iter"
 )
 
 // CompactRequest is one summarization call: the prompt plus the output cap
@@ -200,6 +201,15 @@ type StreamEvent struct {
 	Usage Usage           `json:"usage,omitempty"`
 	Final *Message        `json:"final,omitempty"`
 	Err   string          `json:"err,omitempty"`
+}
+
+// ChatClient is the transport the agent loop drives a turn with: the builtin
+// HTTP client (*client.Client) or an extension-served model connection.
+// Compactor rides along because compaction summarizes through the same
+// connection.
+type ChatClient interface {
+	Stream(ctx context.Context, messages []Message) iter.Seq2[StreamEvent, error]
+	Compactor
 }
 
 // Object is a JSON-schema properties map.

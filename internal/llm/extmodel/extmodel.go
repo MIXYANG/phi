@@ -1,4 +1,6 @@
-package agent
+// Package extmodel adapts an extension-served model connection to
+// llm.ChatClient, folding PXB model frames back into host stream events.
+package extmodel
 
 import (
 	"context"
@@ -10,63 +12,45 @@ import (
 	"strings"
 
 	"github.com/pulseaiclub/phi/ext/go/pxb"
-	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/llm"
 )
 
-// chatClient is the transport the agent loop drives a turn with: the builtin
-// HTTP client (*llmclient.Client) or an extension-served model connection.
-type chatClient interface {
-	Stream(ctx context.Context, messages []llm.Message) iter.Seq2[llm.StreamEvent, error]
-	// Compact satisfies llm.Compactor for session compaction.
-	Compact(ctx context.Context, req llm.CompactRequest) (llm.CompactResult, error)
-}
-
-// modelStreamFn starts one extension model stream. *extension.Runner implements
-// it; tests inject fakes.
-type modelStreamFn func(
+// StreamFunc starts one extension model stream. The host binds
+// extension.Runner.ModelStream to the selected route; tests inject fakes.
+type StreamFunc func(
 	ctx context.Context,
-	route extension.ModelRoute,
 	req pxb.ModelInvoke,
 ) (iter.Seq2[pxb.ModelStreamEvent, error], error)
 
-// extModelClient adapts an extension-served model (RegisterModel Conn "ext")
-// to chatClient. The extension owns the connection — proxy, gateway, or local
+// Client adapts an extension-served model (RegisterModel Conn "ext") to
+// llm.ChatClient. The extension owns the connection — proxy, gateway, or local
 // generation; the host serializes the provider-neutral request and the
 // extension answers with ModelStreamEvent frames that this client folds back
 // into llm.StreamEvent, assembling the final assistant message from deltas.
-type extModelClient struct {
-	stream modelStreamFn
-	route  extension.ModelRoute
+type Client struct {
+	model  string
+	stream StreamFunc
 	cfg    llm.ModelConfig
 	tools  []llm.ToolDefinition
 	system string
 }
 
-func newExtModelClient(
-	runner *extension.Runner,
-	route extension.ModelRoute,
+// New builds a client for the extension-registered model named model. model is
+// the name the extension answers to, not the host-side model config name.
+func New(
+	model string,
+	stream StreamFunc,
 	cfg llm.ModelConfig,
 	tools []llm.ToolDefinition,
 	system string,
-) *extModelClient {
-	return newExtModelClientWithStream(runner.ModelStream, route, cfg, tools, system)
-}
-
-func newExtModelClientWithStream(
-	stream modelStreamFn,
-	route extension.ModelRoute,
-	cfg llm.ModelConfig,
-	tools []llm.ToolDefinition,
-	system string,
-) *extModelClient {
-	return &extModelClient{stream: stream, route: route, cfg: cfg, tools: tools, system: system}
+) *Client {
+	return &Client{model: model, stream: stream, cfg: cfg, tools: tools, system: system}
 }
 
 // Stream runs one chat completion on the extension. Deltas pass through; the
 // done frame's final message is assembled here so extensions never re-implement
 // accumulation. A stream that ends without done is a transport error.
-func (c *extModelClient) Stream(
+func (c *Client) Stream(
 	ctx context.Context,
 	messages []llm.Message,
 ) iter.Seq2[llm.StreamEvent, error] {
@@ -76,7 +60,7 @@ func (c *extModelClient) Stream(
 			yield(llm.StreamEvent{}, err)
 			return
 		}
-		frames, err := c.stream(ctx, c.route, invoke)
+		frames, err := c.stream(ctx, invoke)
 		if err != nil {
 			yield(llm.StreamEvent{}, err)
 			return
@@ -107,7 +91,7 @@ func (c *extModelClient) Stream(
 			case "error":
 				text := ev.Error
 				if text == "" {
-					text = fmt.Sprintf("extension model %q stream failed", c.route.Reg.Name)
+					text = fmt.Sprintf("extension model %q stream failed", c.model)
 				}
 				yield(llm.StreamEvent{}, errors.New(text))
 				return
@@ -122,7 +106,7 @@ func (c *extModelClient) Stream(
 			default:
 				yield(
 					llm.StreamEvent{},
-					fmt.Errorf("extension model %q: unknown stream event %q", c.route.Reg.Name, ev.Type),
+					fmt.Errorf("extension model %q: unknown stream event %q", c.model, ev.Type),
 				)
 				return
 			}
@@ -142,14 +126,14 @@ func (c *extModelClient) Stream(
 // extension sees an ordinary (tool-less, system-less) chat request, so no
 // dedicated wire path is needed. The Truncated flag is never set: extensions
 // have no output-cap signal. MaxTokens is advisory only, like the prompt.
-func (c *extModelClient) Compact(ctx context.Context, req llm.CompactRequest) (llm.CompactResult, error) {
+func (c *Client) Compact(ctx context.Context, req llm.CompactRequest) (llm.CompactResult, error) {
 	invoke, err := buildInvoke(
-		c.route.Reg.Name, nil, "", "", []llm.Message{{Role: llm.RoleUser, Content: req.Prompt}},
+		c.model, nil, "", "", []llm.Message{{Role: llm.RoleUser, Content: req.Prompt}},
 	)
 	if err != nil {
 		return llm.CompactResult{}, err
 	}
-	frames, err := c.stream(ctx, c.route, invoke)
+	frames, err := c.stream(ctx, invoke)
 	if err != nil {
 		return llm.CompactResult{}, err
 	}
@@ -177,12 +161,12 @@ func (c *extModelClient) Compact(ctx context.Context, req llm.CompactRequest) (l
 // buildInvoke serializes the neutral request. Messages reuse the session
 // serialization JSON tags, so extensions can decode conversations without
 // importing host internals.
-func (c *extModelClient) buildInvoke(messages []llm.Message) (pxb.ModelInvoke, error) {
+func (c *Client) buildInvoke(messages []llm.Message) (pxb.ModelInvoke, error) {
 	think := ""
 	if c.cfg.Think.Enabled {
 		think = string(c.cfg.Think.Mode)
 	}
-	return buildInvoke(c.route.Reg.Name, c.tools, c.system, think, messages)
+	return buildInvoke(c.model, c.tools, c.system, think, messages)
 }
 
 func buildInvoke(
@@ -224,10 +208,10 @@ func decodeModelDelta(ev pxb.ModelStreamEvent) (llm.StreamDelta, error) {
 	return delta, nil
 }
 
-// extStreamAccumulator folds deltas into the final assistant message. Tool
-// calls arrive as fragments keyed by Index: the first fragment carries
+// streamAccumulator folds deltas into the final assistant message. Tool calls
+// arrive as fragments keyed by Index: the first fragment carries
 // ID/Type/Name, later ones append argument text.
-type extStreamAccumulator struct {
+type streamAccumulator struct {
 	content   strings.Builder
 	reasoning strings.Builder
 	calls     map[int]*llm.ToolCall
@@ -235,11 +219,11 @@ type extStreamAccumulator struct {
 	usage     llm.Usage
 }
 
-func newStreamAccumulator() *extStreamAccumulator {
-	return &extStreamAccumulator{calls: make(map[int]*llm.ToolCall)}
+func newStreamAccumulator() *streamAccumulator {
+	return &streamAccumulator{calls: make(map[int]*llm.ToolCall)}
 }
 
-func (a *extStreamAccumulator) apply(delta llm.StreamDelta) {
+func (a *streamAccumulator) apply(delta llm.StreamDelta) {
 	a.content.WriteString(delta.Content)
 	a.reasoning.WriteString(delta.ReasoningContent)
 	for _, tc := range delta.ToolCalls {
@@ -269,7 +253,7 @@ func (a *extStreamAccumulator) apply(delta llm.StreamDelta) {
 
 // applyUsage records the latest reported usage; extensions may send it on a
 // delta or on the done frame.
-func (a *extStreamAccumulator) applyUsage(ev pxb.ModelStreamEvent) error {
+func (a *streamAccumulator) applyUsage(ev pxb.ModelStreamEvent) error {
 	if len(ev.UsageJSON) == 0 {
 		return nil
 	}
@@ -279,7 +263,7 @@ func (a *extStreamAccumulator) applyUsage(ev pxb.ModelStreamEvent) error {
 	return nil
 }
 
-func (a *extStreamAccumulator) message() llm.Message {
+func (a *streamAccumulator) message() llm.Message {
 	msg := llm.Message{
 		Role:             llm.RoleAssistant,
 		Content:          a.content.String(),

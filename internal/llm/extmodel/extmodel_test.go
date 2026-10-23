@@ -1,4 +1,4 @@
-package agent
+package extmodel
 
 import (
 	"context"
@@ -6,13 +6,11 @@ import (
 	"iter"
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/extension"
+	"github.com/pulseaiclub/phi/ext/go/pxb"
 	"github.com/pulseaiclub/phi/internal/llm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/pulseaiclub/phi/ext/go/pxb"
 )
 
 func deltaEvents(seq iter.Seq2[llm.StreamEvent, error]) ([]llm.StreamEvent, error) {
@@ -29,7 +27,7 @@ func deltaEvents(seq iter.Seq2[llm.StreamEvent, error]) ([]llm.StreamEvent, erro
 	return out, nil
 }
 
-func TestExtModelStreamAssemblesFinalMessage(t *testing.T) {
+func TestStreamAssemblesFinalMessage(t *testing.T) {
 	frames := []pxb.ModelStreamEvent{
 		{Type: "delta", Reasoning: "thin"},
 		{Type: "delta", Reasoning: "king", Content: "hel"},
@@ -42,11 +40,11 @@ func TestExtModelStreamAssemblesFinalMessage(t *testing.T) {
 		})},
 		{Type: "done", UsageJSON: mustJSON(t, llm.Usage{PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7})},
 	}
-	c := newExtModelClientWithStream(
-		func(context.Context, extension.ModelRoute, pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
+	c := New(
+		"echo",
+		func(context.Context, pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
 			return sliceSeq(frames), nil
 		},
-		extension.ModelRoute{Ext: "models", Reg: pxb.RegisterModel{Name: "echo", Conn: pxb.ConnExt}},
 		llm.ModelConfig{Think: llm.ThinkConfig{Mode: llm.High, Enabled: true}},
 		nil, "sys",
 	)
@@ -70,13 +68,13 @@ func TestExtModelStreamAssemblesFinalMessage(t *testing.T) {
 	assert.Equal(t, 7, final.Usage.TotalTokens)
 }
 
-func TestExtModelStreamErrorAndProtocolViolations(t *testing.T) {
+func TestStreamErrorAndProtocolViolations(t *testing.T) {
 	t.Run("error frame", func(t *testing.T) {
-		c := newExtModelClientWithStream(
-			func(context.Context, extension.ModelRoute, pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
+		c := New(
+			"echo",
+			func(context.Context, pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
 				return sliceSeq([]pxb.ModelStreamEvent{{Type: "error", Error: "upstream 500"}}), nil
 			},
-			extension.ModelRoute{Reg: pxb.RegisterModel{Name: "echo", Conn: pxb.ConnExt}},
 			llm.ModelConfig{},
 			nil,
 			"",
@@ -86,11 +84,11 @@ func TestExtModelStreamErrorAndProtocolViolations(t *testing.T) {
 	})
 
 	t.Run("missing done", func(t *testing.T) {
-		c := newExtModelClientWithStream(
-			func(context.Context, extension.ModelRoute, pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
+		c := New(
+			"echo",
+			func(context.Context, pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
 				return sliceSeq([]pxb.ModelStreamEvent{{Type: "delta", Content: "x"}}), nil
 			},
-			extension.ModelRoute{Reg: pxb.RegisterModel{Name: "echo", Conn: pxb.ConnExt}},
 			llm.ModelConfig{},
 			nil,
 			"",
@@ -102,11 +100,11 @@ func TestExtModelStreamErrorAndProtocolViolations(t *testing.T) {
 	t.Run("cancelled context", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
-		c := newExtModelClientWithStream(
-			func(context.Context, extension.ModelRoute, pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
+		c := New(
+			"echo",
+			func(context.Context, pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
 				return sliceSeq(nil), nil
 			},
-			extension.ModelRoute{Reg: pxb.RegisterModel{Name: "echo", Conn: pxb.ConnExt}},
 			llm.ModelConfig{},
 			nil,
 			"",
@@ -116,17 +114,17 @@ func TestExtModelStreamErrorAndProtocolViolations(t *testing.T) {
 	})
 }
 
-func TestExtModelCompactCollectsText(t *testing.T) {
+func TestCompactCollectsText(t *testing.T) {
 	frames := []pxb.ModelStreamEvent{
 		{Type: "delta", Content: "sum"},
 		{Type: "delta", Content: "mary"},
 		{Type: "done"},
 	}
-	c := newExtModelClientWithStream(
-		func(context.Context, extension.ModelRoute, pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
+	c := New(
+		"echo",
+		func(context.Context, pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
 			return sliceSeq(frames), nil
 		},
-		extension.ModelRoute{Reg: pxb.RegisterModel{Name: "echo", Conn: pxb.ConnExt}},
 		llm.ModelConfig{}, nil, "",
 	)
 	res, err := c.Compact(t.Context(), llm.CompactRequest{Prompt: "summarize"})
@@ -135,14 +133,14 @@ func TestExtModelCompactCollectsText(t *testing.T) {
 	assert.False(t, res.Truncated)
 }
 
-func TestExtModelBuildInvoke(t *testing.T) {
+func TestBuildInvoke(t *testing.T) {
 	var got pxb.ModelInvoke
-	c := newExtModelClientWithStream(
-		func(_ context.Context, _ extension.ModelRoute, req pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
+	c := New(
+		"echo",
+		func(_ context.Context, req pxb.ModelInvoke) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
 			got = req
 			return sliceSeq([]pxb.ModelStreamEvent{{Type: "done"}}), nil
 		},
-		extension.ModelRoute{Reg: pxb.RegisterModel{Name: "echo", Conn: pxb.ConnExt}},
 		llm.ModelConfig{Think: llm.ThinkConfig{Mode: llm.High, Enabled: true}},
 		[]llm.ToolDefinition{{Name: "read", Description: "Read a file"}},
 		"be brief",
@@ -172,7 +170,7 @@ func TestExtModelBuildInvoke(t *testing.T) {
 	assert.Equal(t, "read", tools[0].Name)
 }
 
-func TestExtStreamAccumulatorFragments(t *testing.T) {
+func TestStreamAccumulatorFragments(t *testing.T) {
 	acc := newStreamAccumulator()
 	acc.apply(llm.StreamDelta{Content: "a", ReasoningContent: "r"})
 	acc.apply(llm.StreamDelta{ToolCalls: []llm.ToolCall{

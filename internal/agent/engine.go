@@ -10,11 +10,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pulseaiclub/phi/ext/go/pxb"
 	"github.com/pulseaiclub/phi/internal/agent/prompt"
 	"github.com/pulseaiclub/phi/internal/extension"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
+	"github.com/pulseaiclub/phi/internal/llm/extmodel"
 	"github.com/pulseaiclub/phi/internal/llm/skills"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/permission"
@@ -42,7 +44,7 @@ type ContinueFunc func(ctx context.Context, maxRounds int) (bool, error)
 // and yields session.Event for the TUI reducer. Context compaction is owned
 // here so Session stays a thin message store.
 type Engine struct {
-	client       chatClient
+	client       llm.ChatClient
 	executor     *Executor
 	maxRounds    atomic.Int64
 	modelCfg     llm.ModelConfig
@@ -99,12 +101,17 @@ func NewEngine(model llm.ModelConfig, sess *Session, opts ...EngineOption) (*Eng
 // shadows a config.yaml entry with the same name), else the builtin HTTP
 // client. Hooks only apply to the builtin path — extension-served requests
 // never pass through a provider request builder.
-func (engine *Engine) newChatClient(tools []tooldef.Tool) chatClient {
+func (engine *Engine) newChatClient(tools []tooldef.Tool) llm.ChatClient {
 	defs := tooldef.Definitions(tools)
 	if route, ok := engine.extensions.LookupModel(engine.modelCfg.Name); ok && route.ExtConn() {
-		return newExtModelClient(
-			engine.extensions, route, engine.modelCfg, defs, engine.systemPrompt(),
-		)
+		runner := engine.extensions
+		stream := func(
+			ctx context.Context,
+			req pxb.ModelInvoke,
+		) (iter.Seq2[pxb.ModelStreamEvent, error], error) {
+			return runner.ModelStream(ctx, route, req)
+		}
+		return extmodel.New(route.Reg.Name, stream, engine.modelCfg, defs, engine.systemPrompt())
 	}
 	return llmclient.NewClient(engine.modelCfg, engine.hooks, defs, engine.systemPrompt())
 }
