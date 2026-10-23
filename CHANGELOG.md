@@ -25,6 +25,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the type of `Usage::prompt_tokens_details` and report cache traffic from
   served models.
 
+### Changed
+
+- `!` shell completion now ranks by recency only: it lists project-history
+  commands that literally start with the typed text, newest first. The TypeSafe
+  Jev judge is gone, so completion works offline and never sends shell history
+  off the machine.
+
+### Removed
+
+- TypeSafe System One support: `internal/llm/jev`, `internal/optimizer`, and
+  the `PHI_OPTIMIZER` / `TYPESAFE_API_KEY` switches are gone. `!` completion no
+  longer needs or accepts an API key.
+
 ## [0.29.1] - 2026-10-22
 
 ### Added
