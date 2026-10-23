@@ -11,6 +11,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/chat"
+	"github.com/pulseaiclub/phi/internal/components/listpicker"
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/debuglog"
@@ -54,6 +55,7 @@ type Editor struct {
 	toast      toast.Toast
 	diff       *diffpane.Pane
 	code       *codepane.Pane
+	diffList   listpicker.State
 
 	ctrl *controller.EngineController
 
@@ -314,6 +316,12 @@ func (e *Editor) blocksComposer() bool {
 // both own the frame, and the one underneath would come back on the next Esc.
 func (e *Editor) openDiff(args []string) {
 	e.code.Close()
+	if len(args) == 0 {
+		e.diff.Close()
+		e.diffList = listpicker.State{}
+		e.showChanges(false)
+		return
+	}
 	e.diff.OpenGit(e.cwd, args)
 	e.captureOverlayFocus()
 }
@@ -355,7 +363,11 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		e.captureOverlayFocus()
 		e.diff.Handle(ctx, ev)
 		if !e.diff.Active() {
-			e.composer.FocusChat()
+			if e.diff.ReturnToList() {
+				e.showChanges(true)
+			} else {
+				e.composer.FocusChat()
+			}
 		}
 		return
 	}

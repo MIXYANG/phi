@@ -202,6 +202,7 @@ func (c *ComposerPane) ShowList(
 	c.HideCompleters()
 	c.HidePalette()
 	c.listPicker.OnAccept = onAccept
+	c.listPicker.FocusReturn = &c.Chat
 	// Assign unconditionally: a nil clears a prior domain's delete path off
 	// the shared picker, mirroring the accept-leak guard above.
 	c.listPicker.OnDelete = onDelete
@@ -213,6 +214,15 @@ func (c *ComposerPane) ShowList(
 		c.onRedraw()
 	}
 }
+
+// ListState saves the shared picker's query and selected row before acceptance.
+func (c *ComposerPane) ListState() listpicker.State { return c.listPicker.State() }
+
+// RestoreListState restores a domain's place after reopening the shared picker.
+func (c *ComposerPane) RestoreListState(state listpicker.State) { c.listPicker.Restore(state) }
+
+// SetListFocusReturn directs acceptance to a detail view instead of chat.
+func (c *ComposerPane) SetListFocusReturn(w components.Widget) { c.listPicker.FocusReturn = w }
 
 // ShowSessionList maps sessions into list rows and opens the picker.
 func (c *ComposerPane) ShowSessionList(
@@ -649,8 +659,8 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		if c.listPicker.Open {
 			c.listPicker.Handle(ctx, ev)
-			if !c.listPicker.Open {
-				c.FocusChat()
+			if !c.listPicker.Open && c.requestFocus != nil {
+				c.requestFocus(c.listPicker.FocusReturn)
 			}
 			return
 		}

@@ -10,6 +10,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `/diff` opens the same searchable picker as `/branch`, showing each changed
+  file once with its modification type. Select a file to review its complete
+  changes relative to HEAD; new files are shown as additions. Escape returns
+  to the refreshed list with the filter and selection preserved. Review notes
+  are retained for each file.
+
 ### Fixed
 
 - Rust SDK: re-export `phi::PromptTokensDetails`, so extension authors can name

@@ -190,6 +190,29 @@ func (p *Picker) SetItems(items []Item) {
 	p.refilter()
 }
 
+// State keeps a caller's place when a detail view temporarily replaces the list.
+type State struct {
+	Query      string
+	SelectedID string
+}
+
+func (p *Picker) State() State {
+	item, _ := p.selectedItem()
+	return State{Query: p.Query, SelectedID: item.ID}
+}
+
+func (p *Picker) Restore(state State) {
+	p.Query = state.Query
+	p.Cursor = len(p.Query)
+	p.refilter()
+	for i, hit := range p.filtered {
+		if p.rows()[hit.index].ID == state.SelectedID {
+			p.Selected = i
+			break
+		}
+	}
+}
+
 func (p *Picker) returnFocus(ctx *components.EventContext) {
 	if p.FocusReturn != nil {
 		ctx.RequestFocus(p.FocusReturn)
