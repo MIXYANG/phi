@@ -8,12 +8,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-### Fixed
-
-- Gemini: send `thinkingConfig` inside `generationConfig`, matching the
-  Generative Language REST schema. A top-level field made every Gemini
-  request fail with `400: Unknown name "thinkingConfig"`.
-
 ### Added
 
 - `/diff` opens the same searchable picker as `/branch`, showing each changed
@@ -24,6 +18,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Gemini: send `thinkingConfig` inside `generationConfig`, matching the
+  Generative Language REST schema. A top-level field made every Gemini
+  request fail with `400: Unknown name "thinkingConfig"`.
 - Rust SDK: re-export `phi::PromptTokensDetails`, so extension authors can name
   the type of `Usage::prompt_tokens_details` and report cache traffic from
   served models.
