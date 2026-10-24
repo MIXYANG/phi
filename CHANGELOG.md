@@ -18,6 +18,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Diffs generated for file edits (`util.GenerateDiffString`) now treat a
+  trailing newline as a property of the last line. An edit that removed the
+  file's final newline was reported as the deletion of a phantom empty line,
+  with the old-side hunk range one line too long; a trailing-newline-only
+  difference now rewrites the last line with a `\ No newline at end of file`
+  marker, matching `git diff`.
 - Gemini: send `thinkingConfig` inside `generationConfig`, matching the
   Generative Language REST schema. A top-level field made every Gemini
   request fail with `400: Unknown name "thinkingConfig"`.
