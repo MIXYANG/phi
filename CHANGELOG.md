@@ -15,6 +15,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Auto-compaction no longer saves a summary that finishes after the turn was
   cancelled or after new messages landed while it was being written; the
   history stays intact and compaction reports a failure instead.
+- When compaction cannot recover a context overflow, the error now also says
+  why (for example, the summary hit its token cap) instead of showing only the
+  provider's "prompt is too long".
 
 ## [0.29.2] - 2026-10-25
 

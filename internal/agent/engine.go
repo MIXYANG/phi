@@ -380,6 +380,9 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 						overflowRecovered = true
 						continue
 					}
+					// Keep the overflow first (IsContextOverflow still matches) and say
+					// why recovery could not help.
+					err = errors.Join(err, cerr)
 				}
 				yield(nil, err)
 				return
