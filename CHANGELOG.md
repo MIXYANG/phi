@@ -10,6 +10,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+### Fixed
+
+- Auto-compaction on small context windows (for example 32k) keeps less recent
+  history, so a long tool-heavy turn compacts a couple of times instead of
+  paying for a new summary on nearly every tool call.
+
 ## [0.29.2] - 2026-10-25
 
 ### Added

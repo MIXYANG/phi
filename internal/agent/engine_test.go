@@ -603,22 +603,24 @@ func TestLoopCompactsMidTurnBeforeNextRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	var lastErr error
-	var sawCompact bool
+	var compactions int
 	for ev, err := range engine.Loop(t.Context(), "continue", LoopOpts{}) {
 		if err != nil {
 			lastErr = err
 			break
 		}
 		if _, ok := ev.(session.CompactionStarted); ok {
-			sawCompact = true
+			compactions++
 		}
 	}
 
 	require.NoError(t, lastErr)
-	require.True(t, sawCompact, "the second request should have been preceded by a compaction")
 	require.Len(t, bodies, 2)
-	require.Equal(t, int32(1), compactHits.Load(),
-		"the follow-up attempt has nothing left to cut, so it must not summarize again")
+	require.Equal(t, 1, compactions,
+		"the follow-up attempt has nothing left to cut, so it must not compact again")
+	// The kept tail is fitted to the 40k window, so the cut lands inside the
+	// "c"/"d" turn: one compaction, two summary calls (history + turn prefix).
+	require.Equal(t, int32(2), compactHits.Load())
 
 	first := sentContent(bodies[0])
 	require.Contains(t, first, strings.Repeat("a", 32))
@@ -627,6 +629,61 @@ func TestLoopCompactsMidTurnBeforeNextRequest(t *testing.T) {
 	second := sentContent(bodies[1])
 	require.NotContains(t, second, strings.Repeat("a", 32), "the summarized prefix must be gone")
 	require.NotContains(t, second, strings.Repeat("b", 32))
-	require.Contains(t, second, strings.Repeat("c", 32))
+	require.NotContains(t, second, strings.Repeat("c", 32), "the split turn's prefix is summarized too")
 	require.Contains(t, second, strings.Repeat("d", 32))
+}
+
+// On a 32k window the trigger (window - 16384 reserve) sits below the default
+// keepRecentTokens (20k), so a compaction keeps a tail that is still over the
+// threshold and every later tool round pays for another summary that trims
+// only that round.
+func TestLoopSmallWindowCompactionLeavesHeadroom(t *testing.T) {
+	const rounds = 12
+	var streamHits, compactHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if stream, _ := body["stream"].(bool); stream {
+			n := streamHits.Add(1)
+			w.Header().Set("Content-Type", "text/event-stream")
+			if n <= rounds {
+				_, _ = fmt.Fprint(w, sseToolCallChunk(fmt.Sprintf("call_%d", n), "count", `{}`))
+			} else {
+				_, _ = fmt.Fprint(w, sseTextChunk("done"))
+			}
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
+		compactHits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{
+				"message": map[string]any{"role": "assistant", "content": "prior work summarized"},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	sess, err := NewSession(WithCwd(t.TempDir()))
+	require.NoError(t, err)
+	engine, err := NewEngine(
+		llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 32_768},
+		sess,
+		WithGate(permission.AllowAll{}),
+		WithTools([]tooldef.Tool{bulkyTool()}), // ~3k estimated tokens per round
+	)
+	require.NoError(t, err)
+
+	var lastErr error
+	for _, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
+		if err != nil {
+			lastErr = err
+			break
+		}
+	}
+	require.NoError(t, lastErr)
+	t.Logf("compactions over %d tool rounds: %d", rounds, compactHits.Load())
+	// 12 rounds of ~3k reach ~36k. With headroom, a compaction leaves room for
+	// several rounds before the next one.
+	require.LessOrEqual(t, compactHits.Load(), int32(3))
 }

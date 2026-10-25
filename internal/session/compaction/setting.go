@@ -26,6 +26,20 @@ func DefaultSettings() Settings {
 	return defaultSettings
 }
 
+// ForWindow fits keepRecentTokens to contextWindow. The kept tail must sit well
+// under the trigger (window - reserve): a tail at or over it leaves the next
+// request still past the threshold, so every later tool round pays for another
+// summary. Half the trigger leaves room for the summary and a few more rounds.
+// An unknown window (<= 0) keeps the defaults.
+func (s Settings) ForWindow(contextWindow int) Settings {
+	if contextWindow <= 0 {
+		return s
+	}
+	threshold := max(contextWindow-s.reverseTokens, 0)
+	s.keepRecentTokens = min(s.keepRecentTokens, threshold/2)
+	return s
+}
+
 // EstimateContextTokens estimates the size of the request the entries would
 // produce: the last provider-reported context size plus a chars/4 estimate of
 // everything appended after it. Only the reported size covers the system prompt

@@ -73,3 +73,23 @@ func TestEstimateContextTokens(t *testing.T) {
 		assert.Equal(t, 20_100, EstimateContextTokens(entries))
 	})
 }
+
+func TestSettingsForWindow(t *testing.T) {
+	tests := []struct {
+		name   string
+		window int
+		want   int
+	}{
+		{name: "unknown window keeps the default", window: 0, want: 20000},
+		{name: "large window keeps the default", window: 200_000, want: 20000},
+		{name: "32k window keeps half the trigger", window: 32_768, want: 8192},
+		{name: "window under the reserve keeps nothing extra", window: 8192, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DefaultSettings().ForWindow(tt.window)
+			assert.Equal(t, tt.want, got.keepRecentTokens)
+			assert.Equal(t, defaultSettings.reverseTokens, got.reverseTokens, "the trigger is unchanged")
+		})
+	}
+}

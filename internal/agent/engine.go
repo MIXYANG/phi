@@ -481,7 +481,7 @@ func (engine *Engine) runCompact(
 	usage int,
 	force bool,
 ) (did bool, err error) {
-	settings := compaction.DefaultSettings()
+	settings := compaction.DefaultSettings().ForWindow(engine.modelCfg.ContextWindow)
 	if engine.client == nil {
 		return false, nil
 	}
