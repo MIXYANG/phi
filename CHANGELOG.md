@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+## [0.29.2] - 2026-10-25
+
+### Added
+
 - Extensions can receive `ModelInvoke` frames past the 16 MiB default payload
   cap. The Go, Rust, and TS SDKs advertise `CapLargeFrames` in the hello
   handshake; the host then raises its send cap to `MaxStreamPayload`
@@ -1257,7 +1261,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.1...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.2...HEAD
+[0.29.2]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.2
 [0.29.1]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.1
 [0.29.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.0
 [0.28.9]: https://github.com/pulseaiclub/phi/releases/tag/v0.28.9
