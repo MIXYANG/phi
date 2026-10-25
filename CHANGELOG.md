@@ -10,6 +10,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+### Fixed
+
+- Auto-compaction no longer saves a summary that finishes after the turn was
+  cancelled or after new messages landed while it was being written; the
+  history stays intact and compaction reports a failure instead.
+
 ## [0.29.2] - 2026-10-25
 
 ### Added

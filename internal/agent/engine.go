@@ -504,7 +504,18 @@ func (engine *Engine) runCompact(
 		return false, context.Canceled
 	}
 
+	// The summary was planned against this leaf; anchoring it anywhere else
+	// would drop or duplicate history.
+	leaf := engine.session.LastID()
 	comp, err := compaction.Compact(ctx, *prep, engine.client)
+	if err == nil {
+		// A summary that lands after cancellation must not become the checkpoint.
+		err = ctx.Err()
+	}
+	if err == nil && engine.session.LastID() != leaf {
+		err = fmt.Errorf("compaction aborted: session advanced while summarizing (leaf is now %q)",
+			engine.session.LastID())
+	}
 	if err != nil {
 		_ = yield(session.CompactionComplete{ID: id, Failed: true}, nil)
 		return false, err
