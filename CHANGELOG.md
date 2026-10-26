@@ -12,6 +12,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- `grep` prints each file path once with compact line references, merges
+  overlapping context without repeating lines, and only reports a match-limit
+  truncation when additional matches exist.
 - `agent_wait` returns the complete sub-agent final summary instead of cutting
   it off at 12,000 bytes, so the parent receives conclusions at the end of long
   results. Child transcripts remain in the job logs.
