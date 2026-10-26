@@ -12,6 +12,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- MCP: `tools/list` is followed across pages, so a server that splits its
+  tools and returns `nextCursor` no longer loses every tool after the first
+  page. Those tools used to be reported as "not found" by `read`, `write` and
+  `ls` on `mcp://` even though the server exposed them. A server that repeats a
+  cursor, or never stops paginating, now fails with an explicit error instead of
+  hanging.
 - Windows: starting phi from a shell whose working directory is set through
   the Win32 extended-path prefix (`\\?\C:\...`) no longer crashes at startup.
   The per-directory session storage strips the prefix instead of building a
