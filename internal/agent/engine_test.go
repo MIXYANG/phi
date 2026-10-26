@@ -411,8 +411,8 @@ func TestLoopOverflowRejectsCappedSummary(t *testing.T) {
 	require.True(t, llm.IsContextOverflow(lastErr), "the original overflow still classifies as overflow")
 	require.ErrorContains(t, lastErr, "token cap", "the error says why recovery failed")
 	require.Equal(t, int32(1), streamHits.Load(), "no retry on a failed compact")
-	// Default reserveTokens is 16384, so the history summary is capped at 0.8x.
-	require.InDelta(t, 13107, compactMaxTokens, 0.5)
+	// The history summary cap is fixed, not a fraction of reserveTokens.
+	require.InDelta(t, 32768, compactMaxTokens, 0.5)
 	for _, entry := range sess.PathEntries() {
 		require.NotEqual(t, session.EntryCompaction, entry.GetType(), "no checkpoint was persisted")
 	}
@@ -479,7 +479,7 @@ func TestLoopOverflowRejectsBlankSummary(t *testing.T) {
 	require.True(t, llm.IsContextOverflow(lastErr), "the original overflow still classifies as overflow")
 	require.ErrorContains(t, lastErr, "empty summary", "the error says why recovery failed")
 	require.Equal(t, int32(1), streamHits.Load(), "no retry on a failed compact")
-	require.InDelta(t, 13107, compactMaxTokens, 0.5)
+	require.InDelta(t, 32768, compactMaxTokens, 0.5)
 	for _, entry := range sess.PathEntries() {
 		require.NotEqual(t, session.EntryCompaction, entry.GetType(), "no checkpoint was persisted")
 	}

@@ -140,13 +140,6 @@ func TestGenerateTurnPrefixSummary_BlankText_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestSummarizationCap(t *testing.T) {
-	// Default reserveTokens is 16384: 0.8 for history, 0.5 for the turn prefix.
-	assert.Equal(t, 13107, summarizationCap(16384, historySummaryRatio))
-	assert.Equal(t, 8192, summarizationCap(16384, turnPrefixSummaryRatio))
-	assert.Equal(t, 0, summarizationCap(0, historySummaryRatio), "no budget means the provider default")
-}
-
 // A mid-turn cut summarizes two buckets at once, each with its own cap.
 func TestSummarizeMidTurnCut_CapsEachSummary(t *testing.T) {
 	c := &captureCompactor{}
@@ -160,7 +153,7 @@ func TestSummarizeMidTurnCut_CapsEachSummary(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, summary, "SUMMARY")
 	assert.Contains(t, summary, "Turn Context (mid-turn cut)")
-	assert.ElementsMatch(t, []int{13107, 8192}, c.maxTokens)
+	assert.ElementsMatch(t, []int{historySummaryMaxTokens, turnPrefixSummaryMaxTokens}, c.maxTokens)
 }
 
 // A blank answer from either mid-turn bucket must fail the whole cut. The file

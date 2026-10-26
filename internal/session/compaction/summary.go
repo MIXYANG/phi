@@ -18,23 +18,22 @@ var (
 	compactionTurnPrefixPrompt string
 )
 
-// Summaries are capped at a fraction of the headroom compaction frees
-// (reserveTokens). A summary larger than the headroom it creates does not pay
-// for itself, and the turn-prefix budget is smaller because it only recovers
-// the tail of one turn.
+// Summary output caps are fixed instead of derived from reserveTokens. The
+// summary request is far smaller than the live context (kept messages, the
+// system prompt and tools are not sent), so the reserved headroom says nothing
+// about how much output it can afford. Reasoning shares this cap on most
+// providers and varies widely from call to call, and each update must carry
+// the previous summary forward, so a cap tied to the reserve (0.8 × 16384)
+// eventually truncated every compaction of a long session. The values sit
+// under common model output limits but well above what a summary body needs.
+// They are sent explicitly: omitting the cap falls back to provider defaults
+// that are lower still (Anthropic requires one; DeepSeek non-thinking stops at
+// 8192). The turn-prefix cap is smaller because it only recovers the tail of
+// one turn.
 const (
-	historySummaryRatio    = 0.8
-	turnPrefixSummaryRatio = 0.5
+	historySummaryMaxTokens    = 32768
+	turnPrefixSummaryMaxTokens = 16384
 )
-
-// summarizationCap returns the output cap for one summary. Zero means the
-// provider default (no budget to derive a cap from).
-func summarizationCap(reserveTokens int, ratio float64) int {
-	if reserveTokens <= 0 {
-		return 0
-	}
-	return int(float64(reserveTokens) * ratio)
-}
 
 // errTruncatedSummary reports a summary that hit the output cap: its text is a
 // prefix of the summary the model meant to write, so persisting it would drop

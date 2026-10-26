@@ -37,6 +37,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - When compaction cannot recover a context overflow, the error now also says
   why (for example, the summary hit its token cap) instead of showing only the
   provider's "prompt is too long".
+- Auto-compaction on long sessions with reasoning models (for example
+  DeepSeek with thinking on) no longer fails with "generation hit the token
+  cap" every few rounds. The summary output cap was 0.8 × `reserveTokens`
+  (13107), which reasoning and the ever-growing summary shared; it is now a
+  fixed 32768 (16384 for a split turn's prefix), and `reserveTokens` only
+  decides when compaction starts.
 
 ## [0.29.2] - 2026-10-25
 
