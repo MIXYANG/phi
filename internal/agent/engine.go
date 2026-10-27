@@ -498,6 +498,10 @@ func (engine *Engine) runCompact(
 	if prep.FirstKeptEntryId == "" {
 		return false, nil
 	}
+	prep.Limits = compaction.OutputLimits{
+		MaxTokens:     engine.modelCfg.MaxTokens,
+		ContextWindow: engine.modelCfg.ContextWindow,
+	}
 	if force && len(prep.MessagesToSummarize) == 0 && len(prep.TurnPrefixMessages) == 0 {
 		return false, nil
 	}

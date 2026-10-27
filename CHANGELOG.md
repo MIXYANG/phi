@@ -19,6 +19,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   with descriptions and fuzzy fallback. It works without command history.
   The former `history.jsonl` shell-history reader, writer, and cache are removed;
   prompt recall and session transcripts are unchanged.
+- Models: `max_tokens` sets a model's output limit. Compaction summaries use it
+  as their cap; models without it use 16384. Built-in presets for GPT-6 Astra,
+  GPT-5.6, DeepSeek V4, Kimi K3 and GLM-5.3 include their limits. See
+  [doc/models.md](doc/models.md#output-limit).
 
 ### Fixed
 
@@ -47,6 +51,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - When compaction cannot recover a context overflow, the error now also says
   why (for example, the summary hit its token cap) instead of showing only the
   provider's "prompt is too long".
+- Auto-compaction on long sessions with reasoning models (for example
+  DeepSeek with thinking on) no longer fails with "generation hit the token
+  cap" every few rounds. The summary output cap was 0.8 × `reserveTokens`
+  (13107), which reasoning and the ever-growing summary shared. Summaries now
+  use the model's output limit, clamped so the prompt and output fit the
+  context window, and `reserveTokens` only decides when compaction starts.
 
 ## [0.29.2] - 2026-10-25
 

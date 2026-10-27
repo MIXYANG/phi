@@ -119,6 +119,10 @@ var (
 // presets is the built-in catalog, keyed by model name. Values mirror each
 // provider's public API docs; re-check the linked page when refreshing a
 // model — context length, base URL, and capabilities change between versions.
+// MaxTokens (output limit) is set only where a source states it; presets
+// without it fall back to the compaction default. GPT values come from each
+// model's page under the OpenAI source below; DeepSeek, Kimi and GLM follow the
+// limits ZCode ships for the same models.
 var presets = []Preset{
 	// Source: https://platform.openai.com/docs/models
 	{
@@ -126,6 +130,7 @@ var presets = []Preset{
 			Name:          "gpt-6-astra",
 			BaseURL:       "https://api.openai.com/v1",
 			ContextWindow: 272_000,
+			MaxTokens:     128_000,
 			ImageEnabled:  true,
 			API:           llm.OpenAIResponses,
 			Think:         thinkMax,
@@ -136,6 +141,7 @@ var presets = []Preset{
 			Name:          "gpt-5.6-sol",
 			BaseURL:       "https://api.openai.com/v1",
 			ContextWindow: 272_000,
+			MaxTokens:     128_000,
 			ImageEnabled:  true,
 			API:           llm.OpenAIResponses,
 			Think:         thinkHigh,
@@ -146,6 +152,7 @@ var presets = []Preset{
 			Name:          "gpt-5.6-terra",
 			BaseURL:       "https://api.openai.com/v1",
 			ContextWindow: 272_000,
+			MaxTokens:     128_000,
 			ImageEnabled:  true,
 			API:           llm.OpenAIResponses,
 			Think:         thinkHigh,
@@ -156,6 +163,7 @@ var presets = []Preset{
 			Name:          "gpt-5.6-luna",
 			BaseURL:       "https://api.openai.com/v1",
 			ContextWindow: 272_000,
+			MaxTokens:     128_000,
 			ImageEnabled:  true,
 			API:           llm.OpenAIResponses,
 			Think:         thinkHigh,
@@ -197,6 +205,7 @@ var presets = []Preset{
 			Name:          "deepseek-flash",
 			BaseURL:       "https://api.deepseek.com",
 			ContextWindow: 1_000_000,
+			MaxTokens:     384_000,
 			ImageEnabled:  true,
 			API:           llm.OpenAI,
 			Think:         thinkHigh,
@@ -212,6 +221,7 @@ var presets = []Preset{
 			Name:          "deepseek-v4-pro",
 			BaseURL:       "https://api.deepseek.com",
 			ContextWindow: 1_000_000,
+			MaxTokens:     384_000,
 			API:           llm.OpenAI,
 			Think:         thinkHigh,
 		},
@@ -270,6 +280,7 @@ var presets = []Preset{
 			Name:          "kimi-k3",
 			BaseURL:       "https://api.moonshot.cn/v1",
 			ContextWindow: 1_000_000,
+			MaxTokens:     131_072,
 			ImageEnabled:  true,
 			API:           llm.OpenAI,
 			Think:         thinkMax,
@@ -295,6 +306,7 @@ var presets = []Preset{
 			Name:          "glm-5.3-flash",
 			BaseURL:       "https://api.z.ai/api/coding/paas/v4",
 			ContextWindow: 1_048_576,
+			MaxTokens:     128_000,
 			ImageEnabled:  true,
 			API:           llm.OpenAI,
 			Think:         thinkMax,
@@ -309,6 +321,7 @@ var presets = []Preset{
 			Name:          "glm-5.3",
 			BaseURL:       "https://api.z.ai/api/coding/paas/v4",
 			ContextWindow: 1_048_576,
+			MaxTokens:     128_000,
 			API:           llm.OpenAI,
 			Think:         thinkMax,
 		},
