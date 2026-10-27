@@ -83,6 +83,9 @@ type ModelConfig struct {
 	// ContextWindow is the model's context window in tokens.
 	// Zero disables session compaction (safe default).
 	ContextWindow int
+	// MaxTokens is the model's output limit in tokens. Compaction summaries
+	// use it as their cap; zero falls back to a default.
+	MaxTokens int
 	// MaxRounds is the tool-round budget. Zero → engine default (64).
 	MaxRounds int
 	// ImageEnabled opts this model into image attachments (clipboard / @file).

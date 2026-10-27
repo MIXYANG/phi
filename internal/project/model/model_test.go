@@ -78,10 +78,16 @@ func TestLookupUnknownFallsThrough(t *testing.T) {
 		Name:          "deepseek-flash",
 		BaseURL:       "https://api.deepseek.com",
 		ContextWindow: 1_000_000,
+		MaxTokens:     384_000,
 		ImageEnabled:  true,
 		API:           llm.OpenAI,
 		Think:         llm.ThinkConfig{Enabled: true, Mode: llm.High},
 	}, p.Config)
+
+	// A gateway route inherits the output limit with the rest of the preset.
+	routed, ok := Lookup("deepseek/deepseek-flash")
+	require.True(t, ok)
+	assert.Equal(t, 384_000, routed.Config.MaxTokens)
 }
 
 func TestDeepSeekInterceptorSetsTopLevelThinking(t *testing.T) {

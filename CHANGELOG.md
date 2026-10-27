@@ -10,6 +10,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Models: `max_tokens` sets a model's output limit. Compaction summaries use it
+  as their cap; models without it use 16384. Built-in presets for GPT-6 Astra,
+  GPT-5.6, DeepSeek V4, Kimi K3 and GLM-5.3 include their limits. See
+  [doc/models.md](doc/models.md#output-limit).
+
 ### Fixed
 
 - MCP: `tools/list` is followed across pages, so a server that splits its
@@ -40,9 +45,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Auto-compaction on long sessions with reasoning models (for example
   DeepSeek with thinking on) no longer fails with "generation hit the token
   cap" every few rounds. The summary output cap was 0.8 × `reserveTokens`
-  (13107), which reasoning and the ever-growing summary shared; it is now a
-  fixed 32768 (16384 for a split turn's prefix), and `reserveTokens` only
-  decides when compaction starts.
+  (13107), which reasoning and the ever-growing summary shared. Summaries now
+  use the model's output limit, clamped so the prompt and output fit the
+  context window, and `reserveTokens` only decides when compaction starts.
 
 ## [0.29.2] - 2026-10-25
 

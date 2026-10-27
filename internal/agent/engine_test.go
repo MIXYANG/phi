@@ -250,6 +250,66 @@ func overflowThenOKServer(streamHits *atomic.Int32) *httptest.Server {
 	}))
 }
 
+// The summary request is capped by the model's own output limit, clamped to
+// the window, so a reasoning model has room for both thinking and the summary.
+func TestRunCompactUsesModelOutputLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		maxTokens     int
+		contextWindow int
+		wantAtMost    float64
+		wantExact     bool
+	}{
+		{name: "model limit reaches the request", maxTokens: 128_000, contextWindow: 1_000_000, wantAtMost: 128_000, wantExact: true},
+		{name: "small window clamps it", maxTokens: 128_000, contextWindow: 60_000, wantAtMost: 60_000 - 4096},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var compactMaxTokens float64
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				compactMaxTokens, _ = body["max_tokens"].(float64)
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"choices": []any{map[string]any{
+						"message":       map[string]any{"role": "assistant", "content": "prior work summarized"},
+						"finish_reason": "stop",
+					}},
+				})
+			}))
+			defer server.Close()
+
+			sess, err := NewSession(WithCwd(t.TempDir()))
+			require.NoError(t, err)
+			require.NoError(t, sess.Append(
+				llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+				llm.Message{Role: llm.RoleAssistant, Content: compactionSeed},
+				llm.Message{Role: llm.RoleUser, Content: compactionSeed},
+			))
+			engine, err := NewEngine(
+				llm.ModelConfig{
+					Name: "fake", BaseURL: server.URL, APIKey: "x",
+					ContextWindow: tc.contextWindow, MaxTokens: tc.maxTokens,
+				},
+				sess,
+				WithGate(permission.AllowAll{}),
+				WithTools([]tooldef.Tool{}),
+			)
+			require.NoError(t, err)
+
+			did, err := engine.runCompact(t.Context(), func(session.Event, error) bool { return true }, 0, true)
+			require.NoError(t, err)
+			require.True(t, did)
+			if tc.wantExact {
+				require.InDelta(t, tc.wantAtMost, compactMaxTokens, 0.5)
+				return
+			}
+			require.Positive(t, compactMaxTokens)
+			require.Less(t, compactMaxTokens, tc.wantAtMost, "the prompt's share of the window is taken off")
+		})
+	}
+}
+
 func TestLoopOverflowCompactsAndRetries(t *testing.T) {
 	var streamHits atomic.Int32
 	server := overflowThenOKServer(&streamHits)
@@ -411,8 +471,8 @@ func TestLoopOverflowRejectsCappedSummary(t *testing.T) {
 	require.True(t, llm.IsContextOverflow(lastErr), "the original overflow still classifies as overflow")
 	require.ErrorContains(t, lastErr, "token cap", "the error says why recovery failed")
 	require.Equal(t, int32(1), streamHits.Load(), "no retry on a failed compact")
-	// The history summary cap is fixed, not a fraction of reserveTokens.
-	require.InDelta(t, 32768, compactMaxTokens, 0.5)
+	// No preset and no max_tokens: the summary uses the default output cap.
+	require.InDelta(t, 16384, compactMaxTokens, 0.5)
 	for _, entry := range sess.PathEntries() {
 		require.NotEqual(t, session.EntryCompaction, entry.GetType(), "no checkpoint was persisted")
 	}
@@ -479,7 +539,7 @@ func TestLoopOverflowRejectsBlankSummary(t *testing.T) {
 	require.True(t, llm.IsContextOverflow(lastErr), "the original overflow still classifies as overflow")
 	require.ErrorContains(t, lastErr, "empty summary", "the error says why recovery failed")
 	require.Equal(t, int32(1), streamHits.Load(), "no retry on a failed compact")
-	require.InDelta(t, 32768, compactMaxTokens, 0.5)
+	require.InDelta(t, 16384, compactMaxTokens, 0.5)
 	for _, entry := range sess.PathEntries() {
 		require.NotEqual(t, session.EntryCompaction, entry.GetType(), "no checkpoint was persisted")
 	}
