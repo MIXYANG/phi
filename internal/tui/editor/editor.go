@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/sev/commitmsg"
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
@@ -87,14 +88,8 @@ func NewEditor(
 		composer: composer.NewComposerPane(theme, modelLabel, cwd),
 		footer:   footer.NewFooterChrome(theme, contextWindow),
 	}
-	// The "!" picker reads project shell history: as long as a session
-	// directory exists, prefix completion is wired unconditionally. Without one
-	// the picker stays closed and the composer behaves exactly as before.
-	if ctrl != nil && ctrl.SessionDir() != "" {
-		e.composer.SetBashPredictor(
-			composer.NewBashHistoryPredictor(shellhist.New(ctrl.SessionDir())),
-		)
-	}
+	commitMessages := commitmsg.New(ctrl.GenerateCommitMessage)
+	e.composer.SetBashPredictor(composer.NewBashPredictor(cwd, commitMessages.Complete))
 	// Prompt recall is opt-in: it persists what the user typed under the home
 	// directory, so it stays off until PHI_PROMPT_HISTORY turns it on.
 	if dir := ctrl.SessionDir(); dir != "" && shellhist.PromptsEnabled() {
