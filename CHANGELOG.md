@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+## [0.29.3] - 2026-10-27
+
+### Added
+
 - AI commit-message completion in `!git commit -m` uses sev's optional completion
   hook with the staged diff and recent commit subjects; `-am` includes tracked
   working-tree changes. Phi supplies model generation and repository rules. Suggestions use
@@ -1309,7 +1313,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.2...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.29.3...HEAD
+[0.29.3]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.3
 [0.29.2]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.2
 [0.29.1]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.1
 [0.29.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.29.0
