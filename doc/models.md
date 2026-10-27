@@ -12,10 +12,12 @@ Source of truth: [`internal/project/model`](../internal/project/model/).
 
 ## Gateway aliases and preset bindings
 
-Matching is case-insensitive and accepts routing prefixes, date suffixes and
-qualifiers such as `vendor/glm-5.3-flash:free`. The rightmost recognized model
-wins; slashes inside `:` or `[...]` qualifiers are ignored. Specific variants
-take precedence over their families; arbitrary variant suffixes do not match.
+Matching is case-insensitive and accepts routing prefixes, build suffixes and
+qualifiers such as `vendor/glm-5.3-flash:free`. A build suffix is a date
+(`-20250901`, `-2025-09-01`) or a four-digit tag (`deepseek-v4.1-flash-1017`).
+The rightmost recognized model wins; slashes inside `:` or `[...]` qualifiers
+are ignored. Specific variants take precedence over their families; arbitrary
+variant suffixes do not match.
 
 Also recognized: `group/auto-glm-5-3-flash`, `group/auto-kimi-k3`, and
 DeepSeek V4.1 Flash aliases (using the `deepseek-flash` preset).
