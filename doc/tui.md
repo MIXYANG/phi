@@ -244,6 +244,13 @@ picker refreshes its rows in place via `RefreshPicker`, keeping the filter
 query. Deleting the current session resets the engine to a fresh one, since
 the old JSONL file is gone. The same store call backs `phi sessions remove`.
 
+Ctrl+R turns that filter line into an edit line for the selected session's
+name (⏎ saves, Esc drops the edit and keeps the list). `/rename <title>` names
+the current session without opening the overlay, and `phi sessions rename`
+does the same from the shell. The name lives on the session header, so
+resuming, forking, and deleting still key off the id, and a name is capped at
+one line of 80 runes.
+
 ### 6. Background chrome
 
 | Source | Msg | Target |
