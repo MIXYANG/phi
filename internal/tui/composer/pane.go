@@ -198,14 +198,16 @@ func (c *ComposerPane) ShowList(
 	cfg listpicker.ShowConfig,
 	onAccept func(listpicker.Item),
 	onDelete func(listpicker.Item),
+	onRename func(listpicker.Item, string),
 ) {
 	c.HideCompleters()
 	c.HidePalette()
 	c.listPicker.OnAccept = onAccept
 	c.listPicker.FocusReturn = &c.Chat
-	// Assign unconditionally: a nil clears a prior domain's delete path off
-	// the shared picker, mirroring the accept-leak guard above.
+	// Assign unconditionally: a nil clears a prior domain's delete or rename
+	// path off the shared picker, mirroring the accept-leak guard above.
 	c.listPicker.OnDelete = onDelete
+	c.listPicker.OnRename = onRename
 	c.listPicker.Show(items, cfg)
 	if c.requestFocus != nil {
 		c.requestFocus(&c.listPicker)
@@ -230,7 +232,12 @@ func (c *ComposerPane) ShowSessionList(
 	currentID string,
 	onAccept func(id string),
 	onDelete func(id string),
+	onRename func(id, title string),
 ) {
+	var onRenameItem func(listpicker.Item, string)
+	if onRename != nil {
+		onRenameItem = func(item listpicker.Item, title string) { onRename(item.ID, title) }
+	}
 	c.ShowList(sessionlist.Items(items, currentID, time.Time{}), sessionlist.Config(), func(item listpicker.Item) {
 		if onAccept != nil {
 			onAccept(item.ID)
@@ -239,7 +246,7 @@ func (c *ComposerPane) ShowSessionList(
 		if onDelete != nil {
 			onDelete(item.ID)
 		}
-	})
+	}, onRenameItem)
 }
 
 // RefreshSessionList swaps the rows of an open session picker in place,
@@ -278,7 +285,7 @@ func (c *ComposerPane) ShowBranchList(
 		if onAccept != nil {
 			onAccept(targets[item.ID])
 		}
-	}, onDeleteItem)
+	}, onDeleteItem, nil)
 }
 
 // RefreshBranchList swaps the rows of an open branch picker in place, keeping
@@ -770,6 +777,12 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 // the running stream, then a selection.
 func (c *ComposerPane) handleEscape(ctx *components.EventContext) bool {
 	if c.listPicker.Open {
+		// A pending confirm or rename owns Esc: canceling it keeps the list
+		// open, so the first Esc never throws away the rows being browsed.
+		if c.listPicker.CancelPending() {
+			ctx.ConsumeAndRedraw()
+			return true
+		}
 		c.listPicker.Hide()
 		c.FocusChat()
 		ctx.ConsumeAndRedraw()

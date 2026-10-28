@@ -34,6 +34,7 @@ const (
 // Prompt glyphs.
 const (
 	FilterPrompt = ">"
+	EditPrompt   = "✎"
 	SoftPrompt   = "› "
 	BashPrompt   = "$ "
 )

@@ -124,6 +124,80 @@ func TestSessionCommands_DeleteBlocksWhenBusy(t *testing.T) {
 	assert.Contains(t, drainToast(t, bus), "Cannot delete")
 }
 
+func TestSessionCommands_RenameRewritesFileAndRefreshes(t *testing.T) {
+	dir := t.TempDir()
+	current, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
+	require.NoError(t, err)
+	_, err = current.Append(llm.Message{Role: llm.RoleAssistant, Content: "keep me"})
+	require.NoError(t, err)
+	other, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
+	require.NoError(t, err)
+	_, err = other.Append(llm.Message{Role: llm.RoleAssistant, Content: "rename me"})
+	require.NoError(t, err)
+
+	bus := controller.NewBus(nil)
+	var refreshed []session.SessionMeta
+	s := &SessionCommands{
+		Bus:        bus,
+		SessionDir: func() string { return dir },
+		SessionID:  func() string { return current.ID() },
+		RefreshPicker: func(items []session.SessionMeta, currentID string) {
+			refreshed = items
+			assert.Equal(t, current.ID(), currentID)
+		},
+	}
+	s.Rename(other.ID(), "  second   session ")
+
+	assert.Contains(t, drainToast(t, bus), "Renamed to second session")
+	list, err := session.ListSessions(dir)
+	require.NoError(t, err)
+	require.Len(t, refreshed, 2)
+	for _, meta := range list {
+		if meta.ID == other.ID() {
+			assert.Equal(t, "second session", meta.Title)
+		}
+	}
+}
+
+func TestSessionCommands_RenameCurrentBlocksWhenBusy(t *testing.T) {
+	bus := controller.NewBus(nil)
+	s := &SessionCommands{
+		Bus:          bus,
+		SessionDir:   func() string { return t.TempDir() },
+		SessionID:    func() string { return "abc" },
+		StreamActive: func() bool { return true },
+	}
+	s.Rename("abc", "name")
+	assert.Contains(t, drainToast(t, bus), "Cannot rename")
+}
+
+func TestSessionCommands_RenameUnknownIdToastsAndKeepsList(t *testing.T) {
+	dir := t.TempDir()
+	bus := controller.NewBus(nil)
+	var refreshed bool
+	s := &SessionCommands{
+		Bus:           bus,
+		SessionDir:    func() string { return dir },
+		SessionID:     func() string { return "current" },
+		RefreshPicker: func([]session.SessionMeta, string) { refreshed = true },
+	}
+	s.Rename("nosuchsession", "name")
+	assert.Contains(t, drainToast(t, bus), "not found")
+	assert.False(t, refreshed, "failed rename must not touch the picker")
+}
+
+// /rename without an argument explains itself instead of renaming the session
+// to nothing, which would silently drop the name.
+func TestRenameCommandRequiresTitle(t *testing.T) {
+	r := NewCommandRegistry()
+	bus := controller.NewBus(nil)
+	(&SessionCommands{Bus: bus, SessionDir: func() string { return t.TempDir() }}).Register(r)
+
+	assert.Equal(t, "/rename ", r.LookupInsert("rename"))
+	r.DispatchSlash("/rename", NewContext(bus, nil))
+	assert.Contains(t, drainToast(t, bus), "Usage: /rename")
+}
+
 func TestSessionCommands_DeleteUnknownIdToastsAndKeepsList(t *testing.T) {
 	dir := t.TempDir()
 	m, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))

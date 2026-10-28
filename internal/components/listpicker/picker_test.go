@@ -239,6 +239,117 @@ func TestPickerConfirmSwallowsOtherKeys(t *testing.T) {
 	assert.Equal(t, 1, deleted)
 }
 
+func TestPickerRenameCommit(t *testing.T) {
+	var renamed []string
+	p := &Picker{
+		Theme:    components.DefaultTheme(),
+		OnRename: func(item Item, title string) { renamed = append(renamed, item.ID+"="+title) },
+	}
+	p.Show([]Item{{ID: "a", Primary: "short", Edit: "old name"}}, ShowConfig{})
+	ctx := &components.EventContext{}
+
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: 'r', Mods: xui.ModCtrl, Press: true})
+	assert.Empty(t, renamed, "ctrl+r only arms the edit line")
+	assert.Empty(t, p.Query, "the filter is not the edit line")
+
+	// Typing appends to the pre-filled title; backspace trims it.
+	for _, r := range "!" {
+		p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
+	}
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyBackspace, Press: true})
+	for _, r := range "s" {
+		p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
+	}
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+
+	assert.Equal(t, []string{"a=old names"}, renamed)
+	assert.True(t, p.Open, "renaming keeps the picker open for further edits")
+}
+
+func TestPickerRenameEscapesWithoutChangingName(t *testing.T) {
+	var renamed int
+	p := &Picker{Theme: components.DefaultTheme(), OnRename: func(Item, string) { renamed++ }}
+	rows := []Item{{ID: "a", Primary: "short", Edit: "old name"}}
+	p.Show(rows, ShowConfig{})
+	ctx := &components.EventContext{}
+
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: 'r', Mods: xui.ModCtrl, Press: true})
+	for _, r := range "typed" {
+		p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: r, Press: true})
+	}
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
+	assert.Zero(t, renamed)
+	assert.True(t, p.Open, "esc cancels the rename, not the picker")
+
+	// Disarmed: enter accepts the row instead of renaming it.
+	var accepted string
+	p.OnAccept = func(item Item) { accepted = item.ID }
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+	assert.Equal(t, "a", accepted)
+	assert.Zero(t, renamed)
+}
+
+// A row without a title opens the line empty, and Enter on an empty line clears
+// the name.
+func TestPickerRenameEmptyValueClears(t *testing.T) {
+	var titles []string
+	p := &Picker{
+		Theme:    components.DefaultTheme(),
+		OnRename: func(_ Item, title string) { titles = append(titles, title) },
+	}
+	p.Show([]Item{{ID: "a", Primary: "short"}}, ShowConfig{})
+	ctx := &components.EventContext{}
+
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: 'r', Mods: xui.ModCtrl, Press: true})
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+	assert.Equal(t, []string{""}, titles)
+}
+
+// Ctrl+R is inert without a rename owner, mirroring Ctrl+X without OnDelete.
+func TestPickerCtrlRWithoutOnRenameStaysFilter(t *testing.T) {
+	p := &Picker{Theme: components.DefaultTheme()}
+	p.Show([]Item{{ID: "a", Primary: "a", Edit: "name"}}, ShowConfig{})
+	ctx := &components.EventContext{}
+
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: 'r', Mods: xui.ModCtrl, Press: true})
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: 'x', Press: true})
+	assert.Equal(t, "x", p.Query, "ctrl+r was swallowed and typing still filters")
+}
+
+// While renaming, every key edits the name: the filter and the selection must
+// not move under a row the user is naming.
+func TestPickerRenameSwallowsNavigation(t *testing.T) {
+	var titles []string
+	p := &Picker{
+		Theme:    components.DefaultTheme(),
+		OnRename: func(_ Item, title string) { titles = append(titles, title) },
+	}
+	p.Show([]Item{{ID: "a", Primary: "a", Edit: "n"}, {ID: "b", Primary: "b"}}, ShowConfig{})
+	ctx := &components.EventContext{}
+
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: 'r', Mods: xui.ModCtrl, Press: true})
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyDown, Press: true})
+	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+
+	assert.Equal(t, []string{"n"}, titles)
+	assert.Equal(t, 0, p.Selected)
+	assert.Empty(t, p.Query)
+}
+
+func TestPickerDrawRenamePrompt(t *testing.T) {
+	p := &Picker{Theme: components.DefaultTheme(), OnRename: func(Item, string) {}}
+	p.Show([]Item{{ID: "a", Primary: "a", Edit: "old name"}}, ShowConfig{Title: "Sessions"})
+	ctx := components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode}
+	p.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyRune, Rune: 'r', Mods: xui.ModCtrl, Press: true})
+
+	s := p.Draw(ctx)
+	require.Len(t, s.Children, 1)
+	text := components.SurfaceText(s.Children[0].Surface)
+	assert.Contains(t, text, "old name")
+	assert.Contains(t, text, "save")
+	assert.NotContains(t, text, "ctrl+x delete")
+}
+
 func TestPickerDeleteEscapesConfirmWithoutClosing(t *testing.T) {
 	p := &Picker{Theme: components.DefaultTheme(), OnDelete: func(Item) {}}
 	p.Show([]Item{{ID: "a", Primary: "a"}}, ShowConfig{})

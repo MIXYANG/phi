@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"strings"
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/components/toast"
@@ -67,6 +68,26 @@ func (s *SessionCommands) Register(r *CommandRegistry) {
 			return nil
 		},
 	})
+	r.Register(Command{
+		Name:        "rename",
+		Description: "Rename the current session",
+		Slash:       true,
+		Insert:      "/rename ",
+		Run: func(_ Context, args []string) error {
+			title := strings.TrimSpace(strings.Join(args, " "))
+			if title == "" {
+				msg := "Usage: /rename <title> · ctrl+r in /sessions renames any session"
+				if current := s.currentTitle(); current != "" {
+					msg = "Named " + current + " · " + msg
+				}
+				publishToast(s.Bus, msg, toast.ToastWarning, 4*time.Second)
+				return nil
+			}
+			_, currentID := s.dirAndID()
+			s.Rename(currentID, title)
+			return nil
+		},
+	})
 }
 
 // Show opens the session picker for the current session directory.
@@ -82,6 +103,15 @@ func (s *SessionCommands) Show() {
 		return
 	}
 	s.OpenPicker(list, currentID)
+}
+
+// currentTitle returns the live session's name, empty when unnamed. Tests drive
+// these handlers without a controller, so nil means "nothing to report".
+func (s *SessionCommands) currentTitle() string {
+	if s.Ctrl == nil {
+		return ""
+	}
+	return s.Ctrl.SessionTitle()
 }
 
 func (s *SessionCommands) dirAndID() (dir, currentID string) {
@@ -149,6 +179,33 @@ func (s *SessionCommands) Delete(id string) {
 	if id == currentID {
 		s.NewSession()
 	}
+	s.refreshPicker()
+}
+
+// Rename sets the title of one session. The live session goes through the
+// controller so its in-memory header matches the file it will keep appending
+// to; other sessions are rewritten in place. An empty title clears the name.
+func (s *SessionCommands) Rename(id, title string) {
+	dir, currentID := s.dirAndID()
+	if id == currentID {
+		if s.StreamActive != nil && s.StreamActive() {
+			// The rename rewrites the file the stream appends to.
+			publishToast(s.Bus, "Cannot rename while a reply or command is running", toast.ToastWarning, 3*time.Second)
+			return
+		}
+		if err := s.Ctrl.RenameSession(title); err != nil {
+			publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
+			return
+		}
+	} else if err := session.RenameSession(dir, id, title); err != nil {
+		publishToast(s.Bus, err.Error(), toast.ToastError, 4*time.Second)
+		return
+	}
+	msg := "Renamed " + shortSessionID(id)
+	if title = session.NormalizeTitle(title); title != "" {
+		msg = "Renamed to " + title
+	}
+	publishToast(s.Bus, msg, toast.ToastSuccess, 3*time.Second)
 	s.refreshPicker()
 }
 

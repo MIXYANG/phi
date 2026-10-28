@@ -22,10 +22,13 @@ import (
 type Item struct {
 	ID       string // value returned on accept
 	Leading  string // left column (e.g. relative time)
-	Primary  string // bold column (e.g. short id)
+	Primary  string // bold column (e.g. title or short id)
 	Detail   string // remaining text
 	Badge    string // optional tag after primary (e.g. "current")
 	Keywords string // extra filter haystack (full id, aliases, …)
+	// Edit is the pre-filled text for edit-in-place modes (rename). It carries
+	// the raw value so the line never starts from the truncated Primary.
+	Edit string
 }
 
 // CommandPrefix opens the command line: a filter query that starts with it is
@@ -58,6 +61,7 @@ type ShowConfig struct {
 	Hint           string // bottom border caption
 	ConfirmMessage string // replaces the filter prompt while confirming a delete
 	ConfirmHint    string // bottom border caption while confirming; default " y/enter delete · n/esc cancel "
+	RenameHint     string // bottom border caption while renaming; default " ⏎ save · esc cancel "
 	CommandTitle   string // title while the filter line holds a command; default "Commands"
 	CommandHint    string // bottom caption in command mode; default chrome.ListHintExtra("run")
 	EmptyCommand   string // no command matches; may contain %q for the typed name
@@ -69,6 +73,9 @@ type ShowConfig struct {
 // Ctrl+X arms deletion of the selected row; Y/Enter fires OnDelete, N/Esc
 // disarms. The overlay stays open after a delete so callers can remove
 // several rows without reopening.
+//
+// With OnRename set, Ctrl+R turns the filter line into an edit line for the
+// selected row: Enter commits the typed text, Esc drops it.
 //
 // With Commands set, a Query that opens with CommandPrefix searches those
 // commands instead of Items, and Enter runs the highlighted one. `!` stays an
@@ -89,6 +96,7 @@ type Picker struct {
 
 	OnAccept    func(Item)
 	OnDelete    func(Item)
+	OnRename    func(Item, string) // Enter in rename mode; nil keeps Ctrl+R inert
 	OnClose     func()
 	FocusReturn components.Widget
 
@@ -97,6 +105,9 @@ type Picker struct {
 	cmdItems    []Item
 	scroll      int
 	confirming  bool
+	renaming    bool
+	renameBuf   string
+	renameCur   int
 	commandMode bool // Query opens with CommandPrefix and Commands is non-empty
 	hintSet     bool // caller supplied ShowConfig.Hint; keep the command advert out
 }
@@ -125,6 +136,7 @@ func (p *Picker) Show(items []Item, cfg ShowConfig) {
 	p.Cursor = 0
 	p.Selected = 0
 	p.scroll = 0
+	p.endRename()
 	p.refilter()
 	p.selectPreferred()
 }
@@ -150,6 +162,9 @@ func normalizeConfig(cfg ShowConfig) ShowConfig {
 	}
 	if cfg.ConfirmHint == "" {
 		cfg.ConfirmHint = " y/enter delete" + chrome.Sep + "n/esc cancel "
+	}
+	if cfg.RenameHint == "" {
+		cfg.RenameHint = " ⏎ save" + chrome.Sep + "esc cancel "
 	}
 	if cfg.CommandTitle == "" {
 		cfg.CommandTitle = "Commands"
@@ -177,9 +192,25 @@ func (p *Picker) Hide() {
 	p.filtered = nil
 	p.commandMode = false
 	p.confirming = false
+	p.endRename()
 	if p.OnClose != nil {
 		p.OnClose()
 	}
+}
+
+// CancelPending drops a pending delete confirm or inline rename and reports
+// whether one was pending. The overlay itself stays open: callers forward the
+// first Esc here so it cancels the question instead of the whole list.
+func (p *Picker) CancelPending() bool {
+	switch {
+	case p.confirming:
+		p.confirming = false
+	case p.renaming:
+		p.endRename()
+	default:
+		return false
+	}
+	return true
 }
 
 // SetItems replaces the rows of an open picker in place, keeping the filter
@@ -449,7 +480,11 @@ func (p *Picker) Handle(ctx *components.EventContext, ev xui.Event) {
 	case xui.PasteEvent:
 		text := util.ReplaceAll(e.Text, "\n", " ")
 		text = util.ReplaceAll(text, "\r", " ")
-		p.insert(text)
+		if p.renaming {
+			p.insertRename(text)
+		} else {
+			p.insert(text)
+		}
 		ctx.ConsumeAndRedraw()
 	case xui.MouseEvent:
 		if e.Action == xui.MousePress && e.Button == xui.MouseLeft {
@@ -461,6 +496,10 @@ func (p *Picker) Handle(ctx *components.EventContext, ev xui.Event) {
 func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 	if p.confirming {
 		p.handleConfirmKey(ctx, e)
+		return
+	}
+	if p.renaming {
+		p.handleRenameKey(ctx, e)
 		return
 	}
 	switch e.Code {
@@ -532,6 +571,17 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 					p.confirming = true
 					ctx.ConsumeAndRedraw()
 				}
+			case 'r', 'R':
+				// Same rule for rename: only with an owner, and only while the
+				// rows on screen are the caller's.
+				if p.OnRename != nil && !p.commandMode {
+					if item, ok := p.selectedItem(); ok {
+						p.renaming = true
+						p.renameBuf = item.Edit
+						p.renameCur = len(item.Edit)
+						ctx.ConsumeAndRedraw()
+					}
+				}
 			}
 			return
 		}
@@ -566,6 +616,60 @@ func (p *Picker) handleConfirmKey(ctx *components.EventContext, e xui.KeyEvent) 
 		p.confirming = false
 	}
 	ctx.ConsumeAndRedraw()
+}
+
+// handleRenameKey drives inline rename mode: Enter commits the trimmed line to
+// OnRename, Esc drops it, and every other key edits the buffer. Consuming all
+// of them keeps the filter query from drifting while a name is being typed.
+func (p *Picker) handleRenameKey(ctx *components.EventContext, e xui.KeyEvent) {
+	switch {
+	case e.Code == xui.KeyEscape:
+		p.endRename()
+	case e.Code == xui.KeyEnter:
+		item, ok := p.selectedItem()
+		value := strings.TrimSpace(p.renameBuf)
+		p.endRename()
+		if ok && p.OnRename != nil {
+			p.OnRename(item, value)
+		}
+	case e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt):
+		// Ctrl chords cannot spell a name: swallow them instead of letting the
+		// filter or a global binding act on a frozen row.
+	case e.Code == xui.KeyBackspace:
+		if p.renameCur > 0 {
+			_, size := utf8.DecodeLastRuneInString(p.renameBuf[:p.renameCur])
+			p.renameBuf = p.renameBuf[:p.renameCur-size] + p.renameBuf[p.renameCur:]
+			p.renameCur -= size
+		}
+	case e.Code == xui.KeyLeft:
+		if p.renameCur > 0 {
+			_, size := utf8.DecodeLastRuneInString(p.renameBuf[:p.renameCur])
+			p.renameCur -= size
+		}
+	case e.Code == xui.KeyRight:
+		if p.renameCur < len(p.renameBuf) {
+			_, size := utf8.DecodeRuneInString(p.renameBuf[p.renameCur:])
+			p.renameCur += size
+		}
+	case e.Code == xui.KeyHome:
+		p.renameCur = 0
+	case e.Code == xui.KeyEnd:
+		p.renameCur = len(p.renameBuf)
+	case e.Code == xui.KeyRune && e.Rune >= 0x20:
+		p.insertRename(string(e.Rune))
+	}
+	ctx.ConsumeAndRedraw()
+}
+
+func (p *Picker) insertRename(text string) {
+	p.renameBuf = p.renameBuf[:p.renameCur] + text + p.renameBuf[p.renameCur:]
+	p.renameCur += len(text)
+}
+
+func (p *Picker) endRename() {
+	p.renaming = false
+	p.renameBuf = ""
+	p.renameCur = 0
 }
 
 // Draw renders the bordered list panel.
@@ -697,6 +801,17 @@ func (p *Picker) drawPrompt(panel *components.Surface, ctx components.DrawContex
 		panel.Print(1, y, msg, th.Destructive, ctx.Method)
 		return
 	}
+	if p.renaming {
+		// The selected row keeps its place while its name is edited on the
+		// filter line, so the overlay stays the same box for both jobs.
+		panel.Print(1, y, chrome.EditPrompt, th.Foreground, ctx.Method)
+		avail := max(boxW-5, 1)
+		panel.Print(3, y, layout.TruncateToWidth(p.renameBuf, avail, ctx.Method), th.Foreground, ctx.Method)
+		curCol := xui.StringWidth(p.renameBuf[:min(p.renameCur, len(p.renameBuf))], ctx.Method)
+		curCol = max(min(curCol, avail-1), 0)
+		panel.Cursor = &components.Point{X: 3 + curCol, Y: y}
+		return
+	}
 	panel.Print(1, y, chrome.FilterPrompt, th.Foreground, ctx.Method)
 	avail := max(boxW-5, 1)
 	q := p.Query
@@ -816,6 +931,8 @@ func (p *Picker) drawHint(
 	switch {
 	case p.confirming:
 		hint = p.cfg.ConfirmHint
+	case p.renaming:
+		hint, short = p.cfg.RenameHint, chrome.ListHintShort("save")
 	case p.commandMode:
 		hint, short = p.cfg.CommandHint, chrome.ListHintShort("run")
 	case !p.hintSet && len(p.Commands) > 0:
