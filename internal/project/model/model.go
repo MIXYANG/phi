@@ -74,7 +74,9 @@ func LookupBound(bound, name string) (Preset, bool) {
 }
 
 // Specific variants take precedence over their families. Only documented
-// routing prefixes, date suffixes and gateway qualifiers are interchangeable.
+// routing prefixes, build suffixes and gateway qualifiers are interchangeable.
+// A build suffix is a date (-20250901, -2025-09-01) or a four-digit tag
+// (-1017) that some routes pin; any other trailing text is a different model.
 var aliasRules = sync.OnceValue(buildAliasRules)
 
 func buildAliasRules() []aliasRule {
@@ -85,7 +87,7 @@ func buildAliasRules() []aliasRule {
 			pattern = regexp.QuoteMeta(p.Config.Name)
 		}
 		rules = append(rules, aliasRule{
-			match:  regexp.MustCompile(`(?i)^` + pattern + `(?:-\d{8}|-\d{4}-\d{2}-\d{2})?(?:[:/\[].*)?$`),
+			match:  regexp.MustCompile(`(?i)^` + pattern + `(?:-\d{8}|-\d{4}-\d{2}-\d{2}|-\d{4})?(?:[:/\[].*)?$`),
 			preset: p,
 		})
 	}

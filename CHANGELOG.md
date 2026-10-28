@@ -30,6 +30,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Models: IDs that pin a build with a four-digit suffix, such as
+  `deepseek-v4.1-flash-1017`, now match their preset instead of falling back to
+  generic defaults (no thinking, no context window, the default output limit).
 - MCP: `tools/list` is followed across pages, so a server that splits its
   tools and returns `nextCursor` no longer loses every tool after the first
   page. Those tools used to be reported as "not found" by `read`, `write` and
