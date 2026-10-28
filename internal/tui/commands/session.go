@@ -19,7 +19,8 @@ type SessionCommands struct {
 	Bus        *controller.Bus
 	SyncHooks  func()
 	// OpenPicker opens the session list overlay (wired by Builtin.Bind).
-	OpenPicker func(items []session.SessionMeta, currentID string)
+	// startRename opens it straight into the rename line.
+	OpenPicker func(items []session.SessionMeta, currentID string, startRename bool)
 	// RefreshPicker swaps rows into the open overlay (wired by Builtin.Bind).
 	RefreshPicker func(items []session.SessionMeta, currentID string)
 	// StreamActive reports whether resume/new should be blocked.
@@ -76,11 +77,7 @@ func (s *SessionCommands) Register(r *CommandRegistry) {
 		Run: func(_ Context, args []string) error {
 			title := strings.TrimSpace(strings.Join(args, " "))
 			if title == "" {
-				msg := "Usage: /rename <title> · ctrl+r in /sessions renames any session"
-				if current := s.currentTitle(); current != "" {
-					msg = "Named " + current + " · " + msg
-				}
-				publishToast(s.Bus, msg, toast.ToastWarning, 4*time.Second)
+				s.ShowRename()
 				return nil
 			}
 			_, currentID := s.dirAndID()
@@ -91,7 +88,13 @@ func (s *SessionCommands) Register(r *CommandRegistry) {
 }
 
 // Show opens the session picker for the current session directory.
-func (s *SessionCommands) Show() {
+func (s *SessionCommands) Show() { s.open(false) }
+
+// ShowRename opens the session picker with the selected row already in the
+// rename line: `/rename` with no argument is a request for the overlay.
+func (s *SessionCommands) ShowRename() { s.open(true) }
+
+func (s *SessionCommands) open(startRename bool) {
 	dir, currentID := s.dirAndID()
 	list, err := session.ListSessions(dir)
 	if err != nil {
@@ -102,16 +105,7 @@ func (s *SessionCommands) Show() {
 		publishToast(s.Bus, "No sessions for this directory", toast.ToastWarning, 3*time.Second)
 		return
 	}
-	s.OpenPicker(list, currentID)
-}
-
-// currentTitle returns the live session's name, empty when unnamed. Tests drive
-// these handlers without a controller, so nil means "nothing to report".
-func (s *SessionCommands) currentTitle() string {
-	if s.Ctrl == nil {
-		return ""
-	}
-	return s.Ctrl.SessionTitle()
+	s.OpenPicker(list, currentID, startRename)
 }
 
 func (s *SessionCommands) dirAndID() (dir, currentID string) {

@@ -198,6 +198,23 @@ func (p *Picker) Hide() {
 	}
 }
 
+// BeginRename arms the inline rename line for the selected row, the state Ctrl+R
+// enters. It reports false when the caller owns no rename path, no row is
+// selected, or the line holds a command: the selected row is not theirs.
+func (p *Picker) BeginRename() bool {
+	if !p.Open || p.OnRename == nil || p.commandMode || p.confirming || p.renaming {
+		return false
+	}
+	item, ok := p.selectedItem()
+	if !ok {
+		return false
+	}
+	p.renaming = true
+	p.renameBuf = item.Edit
+	p.renameCur = len(item.Edit)
+	return true
+}
+
 // CancelPending drops a pending delete confirm or inline rename and reports
 // whether one was pending. The overlay itself stays open: callers forward the
 // first Esc here so it cancels the question instead of the whole list.
@@ -574,13 +591,8 @@ func (p *Picker) handleKey(ctx *components.EventContext, e xui.KeyEvent) {
 			case 'r', 'R':
 				// Same rule for rename: only with an owner, and only while the
 				// rows on screen are the caller's.
-				if p.OnRename != nil && !p.commandMode {
-					if item, ok := p.selectedItem(); ok {
-						p.renaming = true
-						p.renameBuf = item.Edit
-						p.renameCur = len(item.Edit)
-						ctx.ConsumeAndRedraw()
-					}
+				if p.BeginRename() {
+					ctx.ConsumeAndRedraw()
 				}
 			}
 			return
