@@ -187,11 +187,13 @@ func TestRunnerSetMetaReachesContext(t *testing.T) {
 	r.fibers["meta"] = f
 	r.mu.Unlock()
 
-	r.SetMeta("session-1", "/tmp/project")
+	r.SetMeta("session-1", "/tmp/project", "fix resume leak")
 	ctx := r.context()
 	assert.Equal(t, "session-1", ctx.SessionID)
 	assert.Equal(t, "/tmp/project", ctx.Cwd)
+	assert.Equal(t, "fix resume leak", ctx.SessionTitle)
 	assert.Equal(t, "session-1", r.hostOpts().SessionID, "bound host opts carry the session")
+	assert.Equal(t, "fix resume leak", r.hostOpts().Title, "bound host opts carry the session name")
 }
 
 func TestRunnerCloseUnloadsEverything(t *testing.T) {

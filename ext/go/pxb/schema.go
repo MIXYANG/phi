@@ -233,8 +233,10 @@ type HostResult struct {
 	Body  string `pxb:"3"`
 }
 
-// SessionMeta is host→ext session identity push.
+// SessionMeta is host→ext session identity push. Title follows the user's
+// name for the session and is re-pushed on every rename.
 type SessionMeta struct {
 	SessionID string `pxb:"1"`
 	Cwd       string `pxb:"2"`
+	Title     string `pxb:"3"`
 }

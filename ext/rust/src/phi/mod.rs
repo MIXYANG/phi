@@ -56,6 +56,8 @@ type EventHandlers = HashMap<pxb::Event, Box<dyn FnMut(pxb::EventNotify)>>;
 pub struct HostInfo {
     pub cwd: String,
     pub session_id: String,
+    /// User-facing session name; empty when unnamed.
+    pub session_title: String,
     pub extension_dir: String,
     pub phi_version: String,
 }
@@ -567,6 +569,7 @@ fn handshake(rd: &mut Rd, wr: &mut Wr, ext: &Extension) -> Result<HostInfo, Erro
     Ok(HostInfo {
         cwd: ack.cwd,
         session_id: ack.session_id,
+        session_title: String::new(),
         extension_dir: ack.extension_dir,
         phi_version: ack.phi_version,
     })
@@ -678,6 +681,7 @@ fn serve_command(state: &mut ServeState<'_>, frame: &pxb::Frame) -> Result<(), E
         let mut ctx = Context {
             cwd: state.host.cwd.clone(),
             session_id: state.host.session_id.clone(),
+            session_title: state.host.session_title.clone(),
             has_ui: true,
             rd: state.rd,
             wr: state.wr,
@@ -973,7 +977,9 @@ fn handle_intercept(req: pxb::InterceptReq, handlers: &mut Handlers) -> pxb::Int
     resp
 }
 
-/// Applies a session-meta push to host info; empty fields mean "no change".
+/// Applies a session-meta push to host info. Empty id/cwd mean "no change"; the
+/// name is always applied, so renaming a session back to unnamed reaches the
+/// extension instead of leaving a stale title behind.
 fn apply_session_meta(host: &mut HostInfo, meta: pxb::SessionMeta) {
     if !meta.session_id.is_empty() {
         host.session_id = meta.session_id;
@@ -981,6 +987,9 @@ fn apply_session_meta(host: &mut HostInfo, meta: pxb::SessionMeta) {
     if !meta.cwd.is_empty() {
         host.cwd = meta.cwd;
     }
+    // Unconditional: the host always sends the current name, so an empty one
+    // clears the name this extension saw.
+    host.session_title = meta.title;
 }
 
 /// Dispatches an event push to its subscriber, if one is registered.
@@ -1009,6 +1018,8 @@ fn tool_error(message: impl Into<String>) -> pxb::ToolResultMsg {
 pub struct Context<'a> {
     pub cwd: String,
     pub session_id: String,
+    /// User-facing session name; empty when unnamed.
+    pub session_title: String,
     pub has_ui: bool,
     rd: &'a mut Rd,
     wr: &'a mut Wr,
@@ -1026,6 +1037,11 @@ impl Context<'_> {
     /// The current session identifier.
     pub fn session_id(&self) -> &str {
         &self.session_id
+    }
+
+    /// The user-facing session name; empty when the session is unnamed.
+    pub fn session_title(&self) -> &str {
+        &self.session_title
     }
 
     /// Whether the host has a UI available.

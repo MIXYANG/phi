@@ -271,8 +271,9 @@ func (*Runner) handleHostRequest(
 	}
 }
 
-// SetMeta updates cwd/session on bound APIs and pushes to subprocesses.
-func (r *Runner) SetMeta(sessionID, cwd string) {
+// SetMeta updates session identity on bound APIs and pushes it to
+// subprocesses. title is the user's name for the session, empty when unnamed.
+func (r *Runner) SetMeta(sessionID, cwd, title string) {
 	if r == nil {
 		return
 	}
@@ -281,6 +282,7 @@ func (r *Runner) SetMeta(sessionID, cwd string) {
 	r.cwd = cwd
 	r.host.SessionID = sessionID
 	r.host.Cwd = cwd
+	r.host.Title = title
 	opts := r.host
 	fibers := r.fiberListLocked()
 	r.mu.Unlock()
@@ -290,7 +292,7 @@ func (r *Runner) SetMeta(sessionID, cwd string) {
 	for _, f := range fibers {
 		r.wire(f, opts)
 		if proc := f.Proc(); proc != nil {
-			proc.PushSessionMeta(sessionID, cwd)
+			proc.PushSessionMeta(sessionID, cwd, title)
 		}
 	}
 }
@@ -664,7 +666,13 @@ func (r *Runner) handlers(event string) []any {
 func (r *Runner) context() *ext.Context {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return &ext.Context{Cwd: r.cwd, SessionID: r.session, HasUI: r.hasUI, UI: r.ui}
+	return &ext.Context{
+		Cwd:          r.cwd,
+		SessionID:    r.session,
+		SessionTitle: r.host.Title,
+		HasUI:        r.hasUI,
+		UI:           r.ui,
+	}
 }
 
 func callToolCall(h any, ev ext.ToolCallEvent, ctx *ext.Context) *ext.ToolCallResult {

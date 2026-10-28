@@ -185,6 +185,7 @@ fn hello_extension_lifecycle() {
         &pxb::SessionMeta {
             session_id: "s9".into(),
             cwd: "/new".into(),
+            title: "named session".into(),
         }
         .encode(),
     );
