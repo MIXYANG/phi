@@ -161,7 +161,9 @@ func (s *Session) invalidateContextCache() {
 	s.contextCacheValid = false
 }
 
-// Append records one or more messages.
+// Append records one or more messages. The first user prompt also names an
+// unnamed session, so the session list reads like a list of conversations
+// instead of a list of hex ids.
 func (s *Session) Append(message ...llm.Message) error {
 	s.invalidateContextCache()
 	for _, msg := range message {
@@ -170,8 +172,25 @@ func (s *Session) Append(message ...llm.Message) error {
 			return err
 		}
 		s.lastID = id
+		s.nameFromFirstPrompt(msg)
 	}
 	return nil
+}
+
+// nameFromFirstPrompt titles an unnamed session from its opening user message.
+// Only the first message entry qualifies (header included, so Len 2), which
+// keeps later prompts — including steering messages and compaction summaries —
+// from renaming the session behind the user's back. A failed rename is not a
+// failed turn: the name is a nicety.
+func (s *Session) nameFromFirstPrompt(msg llm.Message) {
+	if msg.Role != llm.RoleUser || s.manager.Len() != 2 || s.manager.Title() != "" {
+		return
+	}
+	title := session.NormalizeTitle(msg.Content)
+	if title == "" {
+		return
+	}
+	_ = s.SetTitle(title)
 }
 
 // AppendCompaction records a compaction entry and invalidates the context cache.

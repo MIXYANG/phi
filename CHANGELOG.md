@@ -19,11 +19,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- Session names: `/rename <title>`, Ctrl+R in `/sessions`, and
-  `phi sessions rename <id> <title>` store a title on the session header, so the
-  session list leads with a name instead of a hex id. The id stays the durable
-  key — renaming never touches the file name — and an empty title clears the
-  name.
+- Session names: a session takes its name from the first prompt, and
+  `/rename <title>`, Ctrl+R in `/sessions`, and `phi sessions rename <id> <title>`
+  let the user change it. The title lives on the session header, so the session
+  list leads with a name instead of a hex id. The id stays the durable key —
+  renaming never touches the file name — and an empty title clears the name.
 - AI commit-message completion in `!git commit -m` uses sev's optional completion
   hook with the staged diff and recent commit subjects; `-am` includes tracked
   working-tree changes. Phi supplies model generation and repository rules. Suggestions use
