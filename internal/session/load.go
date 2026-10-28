@@ -2,9 +2,11 @@ package session
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,6 +23,7 @@ type SessionMeta struct {
 	File      string
 	Timestamp string
 	Cwd       string
+	Title     string // user-assigned name; empty when the session was never renamed
 	Mtime     time.Time
 	Preview   string // truncated last user text
 }
@@ -93,6 +96,7 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 			meta.ID = e.ID
 			meta.Timestamp = e.Timestamp
 			meta.Cwd = e.Cwd
+			meta.Title = e.Title
 		case SessionMessageEntry:
 			if e.Message.Role == llm.RoleUser && strings.TrimSpace(e.Message.Content) != "" {
 				meta.Preview = truncatePreview(e.Message.Content, 72)
@@ -187,6 +191,109 @@ func DeleteSession(dir, id string) error {
 		return fmt.Errorf("session: delete %s: %w", path, err)
 	}
 	return nil
+}
+
+// RenameSession sets the title stored on the session header for id. id follows
+// FindSessionFile rules (exact or unique prefix); an empty title clears the
+// name. The file name and the session id never change — callers resume and
+// delete by id.
+func RenameSession(dir, id, title string) error {
+	path, err := FindSessionFile(dir, id)
+	if err != nil {
+		return err
+	}
+	return rewriteTitle(path, title)
+}
+
+// rewriteTitle replaces the title on the header line and copies the remaining
+// lines verbatim, so entries written by another build stay untouched. The
+// rewrite goes through a same-directory temp file and restores the original
+// mtime: ListSessions orders by mtime, and naming a session must not reorder
+// the list. Unchanged titles skip the write entirely.
+func rewriteTitle(path, title string) error {
+	orig, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("session: rename %s: %w", path, err)
+	}
+	tmp, err := stageTitle(path, title)
+	if err != nil {
+		_ = os.Remove(path + ".tmp") // best effort: a stray .tmp is invisible to listings
+		return err
+	}
+	if tmp == "" {
+		return nil // already named that
+	}
+	// Windows refuses to replace a file anyone still holds open, so stageTitle
+	// closes both handles before this rename runs.
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("session: rename %s: %w", path, err)
+	}
+	// The title is already on disk; a failed Chtimes only costs list order, so
+	// reporting it as a rename failure would be misleading.
+	_ = os.Chtimes(path, orig.ModTime(), orig.ModTime())
+	return nil
+}
+
+// stageTitle writes a copy of the session with a fresh header title to
+// path+".tmp" and returns that path, or "" when the title is unchanged.
+func stageTitle(path, title string) (string, error) {
+	src, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("session: rename %s: %w", path, err)
+	}
+	defer src.Close()
+
+	reader := bufio.NewReaderSize(src, 64*1024)
+	headerLine, err := reader.ReadBytes('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("session: rename %s: %w", path, err)
+	}
+	headerLine = bytes.TrimRight(headerLine, "\r\n")
+	if len(headerLine) == 0 {
+		return "", fmt.Errorf("session: rename %s: missing header", path)
+	}
+	entry, err := decodeEntryLine(headerLine, 1)
+	if err != nil {
+		return "", err
+	}
+	header, ok := entry.(SessionHeader)
+	if !ok {
+		return "", fmt.Errorf("session: rename %s: first line is not a session header", path)
+	}
+	title = NormalizeTitle(title)
+	if header.Title == title {
+		return "", nil
+	}
+	header.Title = title
+
+	line, err := json.Marshal(header)
+	if err != nil {
+		return "", fmt.Errorf("session: rename %s: encode header: %w", path, err)
+	}
+	line = append(line, '\n')
+
+	tmp := path + ".tmp"
+	dst, err := os.Create(tmp)
+	if err != nil {
+		return "", fmt.Errorf("session: rename %s: %w", tmp, err)
+	}
+	if _, err := dst.Write(line); err != nil {
+		_ = dst.Close()
+		return "", fmt.Errorf("session: rename %s: write header: %w", tmp, err)
+	}
+	if _, err := io.Copy(dst, reader); err != nil {
+		_ = dst.Close()
+		return "", fmt.Errorf("session: rename %s: copy tail: %w", tmp, err)
+	}
+	if err := dst.Sync(); err != nil {
+		_ = dst.Close()
+		return "", fmt.Errorf("session: rename %s: sync: %w", tmp, err)
+	}
+	if err := dst.Close(); err != nil {
+		return "", fmt.Errorf("session: rename %s: close: %w", tmp, err)
+	}
+	return tmp, nil
 }
 
 // OpenSession loads a JSONL session file and returns a Manager ready to append.

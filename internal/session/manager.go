@@ -4,13 +4,16 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/util"
 )
 
 // Manager is the single source of truth for session messages.
@@ -186,12 +189,16 @@ func (sm *Manager) Fork() (*Manager, error) {
 	newID := generateSessionID()
 
 	parentID := sm.sessionID
+	parent, _ := sm.entries[0].(SessionHeader)
 	header := SessionHeader{
 		Type:          EntrySession,
 		ID:            newID,
 		Timestamp:     time.Now().Format("2006-01-02T15-04-05"),
 		Cwd:           sm.cwd,
 		ParentSession: parentID,
+		// A fork is still the same conversation to the user, so it keeps the
+		// name they gave it.
+		Title: parent.Title,
 	}
 	copied := make([]MessageEntry, 0, len(sm.entries))
 	copied = append(copied, header)
@@ -233,6 +240,61 @@ func (sm *Manager) Fork() (*Manager, error) {
 	}
 	dst.flushed = true
 	return dst, nil
+}
+
+// Title returns the user-facing session name, empty when never renamed.
+func (sm *Manager) Title() string {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	header, _ := sm.entries[0].(SessionHeader)
+	return header.Title
+}
+
+// SetTitle renames the session. The header is line 1 of the JSONL, so a
+// flushed session is rewritten once through rewriteTitle; before the first
+// flush there is no file yet and the title simply lands with it. An empty
+// title clears the name.
+func (sm *Manager) SetTitle(title string) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	header, ok := sm.entries[0].(SessionHeader)
+	if !ok {
+		return errors.New("session: set title: missing header")
+	}
+	title = NormalizeTitle(title)
+	if header.Title == title {
+		return nil
+	}
+	// Persist before mutating memory: a failed rewrite must leave the live
+	// manager describing the file that is still on disk.
+	if sm.flushed {
+		if err := rewriteTitle(sm.sessionFile, title); err != nil {
+			return err
+		}
+	}
+	header.Title = title
+	sm.entries[0] = header
+	return nil
+}
+
+// MaxTitleRunes caps a session title; longer names only crowd the picker row.
+const MaxTitleRunes = 80
+
+// NormalizeTitle reduces a typed title to one clean line: control characters
+// become spaces, runs of whitespace collapse, and the result is capped. An
+// empty title means "unnamed", which omits the field from the JSONL header.
+// Callers that report a rename back to the user normalize first, so the toast
+// matches what the file stores.
+func NormalizeTitle(title string) string {
+	title = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, title)
+	title = strings.Join(strings.Fields(title), " ")
+	return util.TruncateRunes(title, MaxTitleRunes, "…")
 }
 
 // AppendCompaction adds a compaction entry as a new leaf and returns its ID.

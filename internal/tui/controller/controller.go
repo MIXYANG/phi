@@ -566,6 +566,23 @@ func (c *EngineController) SessionFile() string {
 	return c.engine.SessionFile()
 }
 
+// RenameSession renames the live session. Before its first flush the session
+// has no file yet, so the title is kept in memory and written with the header.
+func (c *EngineController) RenameSession(title string) error {
+	if c.engine == nil {
+		return errors.New("no live session")
+	}
+	return c.engine.SetSessionTitle(title)
+}
+
+// SessionTitle returns the live session's user-facing name.
+func (c *EngineController) SessionTitle() string {
+	if c.engine == nil {
+		return ""
+	}
+	return c.engine.SessionTitle()
+}
+
 func (c *EngineController) Resume(id string) (cwdWarning string, err error) {
 	id = strings.TrimSpace(id)
 	if id == "" {

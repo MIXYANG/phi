@@ -42,3 +42,37 @@ func TestManagerConcurrentAccess(t *testing.T) {
 
 	require.GreaterOrEqual(t, m.Len(), 8*50)
 }
+
+// TestSetTitleDuringAppend covers the rename path rewriting the same file
+// appends write to: the mutex must keep the header rewrite from clobbering a
+// message line. Run with -race.
+func TestSetTitleDuringAppend(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "start"})
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := range 40 {
+			_, err := m.Append(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("m%d", i)})
+			assert.NoError(t, err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := range 40 {
+			assert.NoError(t, m.SetTitle(fmt.Sprintf("name %d", i)))
+		}
+	}()
+	wg.Wait()
+
+	loaded, err := OpenSession(m.File())
+	require.NoError(t, err)
+	assert.Equal(t, m.Title(), loaded.Title())
+	// 1 header + 1 assistant + 40 user messages; a lost rewrite would drop lines.
+	assert.Equal(t, 42, loaded.Len())
+}

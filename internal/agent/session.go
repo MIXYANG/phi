@@ -141,6 +141,22 @@ func (s *Session) Cwd() string {
 	return s.manager.Cwd()
 }
 
+// Title returns the user-facing session name, empty when never renamed.
+func (s *Session) Title() string {
+	if s == nil || s.manager == nil {
+		return ""
+	}
+	return s.manager.Title()
+}
+
+// SetTitle renames the session; the manager owns the on-disk header rewrite.
+func (s *Session) SetTitle(title string) error {
+	if s == nil || s.manager == nil {
+		return errors.New("agent: no session to rename")
+	}
+	return s.manager.SetTitle(title)
+}
+
 func (s *Session) invalidateContextCache() {
 	s.contextCacheValid = false
 }

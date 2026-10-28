@@ -32,6 +32,9 @@ type SessionHeader struct {
 	Timestamp     string `json:"timestamp"`
 	Cwd           string `json:"cwd"`
 	ParentSession string `json:"parentSession,omitempty"`
+	// Title is the user-facing session name. The id stays the durable key:
+	// every lookup (resume, delete) resolves by id, never by title.
+	Title string `json:"title,omitempty"`
 }
 
 // GetType implements MessageEntry.

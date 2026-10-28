@@ -286,6 +286,22 @@ func (engine *Engine) SessionCwd() string {
 	return engine.session.Cwd()
 }
 
+// SessionTitle returns the user-facing session name (empty when unnamed).
+func (engine *Engine) SessionTitle() string {
+	if engine == nil || engine.session == nil {
+		return ""
+	}
+	return engine.session.Title()
+}
+
+// SetSessionTitle renames the live session, rewriting the JSONL header.
+func (engine *Engine) SetSessionTitle(title string) error {
+	if engine == nil || engine.session == nil {
+		return errors.New("agent: no live session to rename")
+	}
+	return engine.session.SetTitle(title)
+}
+
 // Session returns the underlying session wrapper (for UI transcript replay).
 func (engine *Engine) Session() *Session {
 	if engine == nil {
